@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: RAW
+    tables:
+      - name: confirmedbets
+
+models:
+  - name: confirmedbets__stg
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [bet_id]
+      - not_null:
+          column_name: bet_id
+
+  - name: fact_bets
+    columns:
+      - name: bet_id
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_team
+    columns:
+      - name: team
+        tests:
+          - not_null

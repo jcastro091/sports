@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+COPY autoposter/requirements.txt /app/requirements.txt
+RUN pip install -r /app/requirements.txt
+COPY utils/ /app/utils/
+COPY ops/notify_tg.py /app/ops/notify_tg.py
+COPY autoposter/ /app/autoposter/
+CMD ["python", "autoposter/broadcast_on_new_bets22.py", "--verbose"]

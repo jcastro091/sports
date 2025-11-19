@@ -1,0 +1,7 @@
+{
+  "access_token": "act.a3SNnNbM5XQulgjwqMfTNOpAQ724NFgaD4z51899Zee67wZJUgzWcjE59RWa!6413.u1",
+  "refresh_token": "rft.zN98V3srL99PgLjNwykLsOzfAdi39NsfzrUzvFEjLxYYfDcibqO91cv9ZVNo!6433.u1",
+  "expires_in": 86400,
+  "scopes": "user.info.basic,video.upload,video.publish",
+  "token_type": "Bearer"
+}

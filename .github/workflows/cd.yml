@@ -1,0 +1,59 @@
+name: cd
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE || 'ROLE_CI' }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE || 'WH_TRANSFORM_MED' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r data/requirements.txt
+
+      - name: schemachange → STAGE
+        env:
+          DB_NAME: ${{ secrets.SNOWFLAKE_DB_STAGE || 'STAGE_DB' }}
+        run: |
+          schemachange -f data/migrations -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USER             -r $SNOWFLAKE_ROLE -w $SNOWFLAKE_WAREHOUSE             --create-change-history-table --vars "db_name:${DB_NAME},schema:ANALYTICS"             --private-key "$SNOWFLAKE_PRIVATE_KEY"
+
+      - name: dbt build → STAGE
+        env:
+          DBT_ENV_SECRET_SNOWFLAKE_ACCOUNT: ${{ env.SNOWFLAKE_ACCOUNT }}
+          DBT_ENV_SECRET_SNOWFLAKE_USER: ${{ env.SNOWFLAKE_USER }}
+          DBT_ENV_SECRET_SNOWFLAKE_PRIVATE_KEY: ${{ env.SNOWFLAKE_PRIVATE_KEY }}
+        run: |
+          cd data/dbt
+          dbt deps
+          dbt build --target stage
+
+      - name: Manual approval
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: "jcastro091"
+          minimum-approvals: 1
+          issue-title: "Approve deploy to PROD?"
+
+      - name: schemachange → PROD
+        env:
+          DB_NAME: ${{ secrets.SNOWFLAKE_DB_PROD || 'PROD_DB' }}
+        run: |
+          schemachange -f data/migrations -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USER             -r $SNOWFLAKE_ROLE -w $SNOWFLAKE_WAREHOUSE             --create-change-history-table --vars "db_name:${DB_NAME},schema:ANALYTICS"             --private-key "$SNOWFLAKE_PRIVATE_KEY"
+
+      - name: dbt build → PROD
+        env:
+          DBT_ENV_SECRET_SNOWFLAKE_ACCOUNT: ${{ env.SNOWFLAKE_ACCOUNT }}
+          DBT_ENV_SECRET_SNOWFLAKE_USER: ${{ env.SNOWFLAKE_USER }}
+          DBT_ENV_SECRET_SNOWFLAKE_PRIVATE_KEY: ${{ env.SNOWFLAKE_PRIVATE_KEY }}
+        run: |
+          cd data/dbt
+          dbt build --target prod

@@ -1,0 +1,16 @@
+{
+  "sports": [
+    "soccer_italy_serie_a",
+    "soccer_usa_mls",
+    "soccer_germany_bundesliga"
+  ],
+  "markets": [
+    "H2H Away",
+    "Spread Away",
+    "Total Under"
+  ],
+  "odds_bin": [
+    "Fav"
+  ],
+  "min_proba": 0.7
+}

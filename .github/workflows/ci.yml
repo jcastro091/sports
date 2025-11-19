@@ -1,0 +1,45 @@
+name: ci
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  pr-checks:
+    runs-on: ubuntu-latest
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE || 'ROLE_CI' }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE || 'WH_CI_SMALL' }}
+      DB_NAME: ${{ secrets.SNOWFLAKE_DB_DEV || 'DEV_DB' }}
+      PR_SCHEMA: pr_${{ github.event.number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -r data/requirements.txt
+
+      - name: Create ephemeral schema
+        run: |
+          snowflake -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USER --private-key $SNOWFLAKE_PRIVATE_KEY -r $SNOWFLAKE_ROLE -w $SNOWFLAKE_WAREHOUSE           -q "create schema if not exists ${DB_NAME}.${PR_SCHEMA};"
+
+      - name: schemachange (DDL → PR schema)
+        run: |
+          schemachange -f data/migrations -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USER             -r $SNOWFLAKE_ROLE -w $SNOWFLAKE_WAREHOUSE             --create-change-history-table --vars "db_name:${DB_NAME},schema:${PR_SCHEMA}"             --private-key "$SNOWFLAKE_PRIVATE_KEY"
+
+      - name: dbt build (PR schema)
+        env:
+          DBT_ENV_SECRET_SNOWFLAKE_ACCOUNT: ${{ env.SNOWFLAKE_ACCOUNT }}
+          DBT_ENV_SECRET_SNOWFLAKE_USER: ${{ env.SNOWFLAKE_USER }}
+          DBT_ENV_SECRET_SNOWFLAKE_PRIVATE_KEY: ${{ env.SNOWFLAKE_PRIVATE_KEY }}
+          DBT_TARGET_SCHEMA: ${{ env.PR_SCHEMA }}
+        run: |
+          cd data/dbt
+          dbt deps
+          dbt build --target ci

@@ -1,0 +1,30 @@
+sharpssignal:
+  outputs:
+    ci:
+      type: snowflake
+      account: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_USER') }}"
+      private_key: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_PRIVATE_KEY') }}"
+      role: "ROLE_CI"
+      database: "DEV_DB"
+      warehouse: "WH_CI_SMALL"
+      schema: "{{ env_var('DBT_TARGET_SCHEMA') | default('ANALYTICS') }}"
+    stage:
+      type: snowflake
+      account: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_USER') }}"
+      private_key: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_PRIVATE_KEY') }}"
+      role: "ROLE_CI"
+      database: "STAGE_DB"
+      warehouse: "WH_TRANSFORM_MED"
+      schema: "ANALYTICS"
+    prod:
+      type: snowflake
+      account: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_USER') }}"
+      private_key: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_PRIVATE_KEY') }}"
+      role: "ROLE_CI"
+      database: "PROD_DB"
+      warehouse: "WH_TRANSFORM_MED"
+      schema: "ANALYTICS"
+  target: ci

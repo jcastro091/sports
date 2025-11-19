@@ -1,0 +1,317 @@
+[
+  {
+    "id": "e2702a54a8a4edb4d21c090b7d79902e",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2025-05-14T01:35:00Z",
+    "home_team": "Oklahoma City Thunder",
+    "away_team": "Denver Nuggets",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2025-05-14T01:10:42Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2025-05-14T01:10:42Z",
+            "outcomes": [
+              {
+                "name": "Denver Nuggets",
+                "price": 4.51
+              },
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 1.24
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2025-05-14T01:10:42Z",
+            "outcomes": [
+              {
+                "name": "Denver Nuggets",
+                "price": 1.98,
+                "point": 10.0
+              },
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 1.93,
+                "point": -10.0
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2025-05-14T01:10:42Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.94,
+                "point": 221.5
+              },
+              {
+                "name": "Under",
+                "price": 1.94,
+                "point": 221.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "d114ce697e9198da37a8d7102180d87e",
+    "sport_key": "baseball_mlb",
+    "sport_title": "MLB",
+    "commence_time": "2025-05-14T01:40:00Z",
+    "home_team": "San Diego Padres",
+    "away_team": "Los Angeles Angels",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2025-05-14T01:11:29Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Los Angeles Angels",
+                "price": 2.88
+              },
+              {
+                "name": "San Diego Padres",
+                "price": 1.48
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Los Angeles Angels",
+                "price": 1.89,
+                "point": 1.5
+              },
+              {
+                "name": "San Diego Padres",
+                "price": 2.02,
+                "point": -1.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 2.0,
+                "point": 7.5
+              },
+              {
+                "name": "Under",
+                "price": 1.88,
+                "point": 7.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "e6d8d222231a8b3dbfe8d62295536438",
+    "sport_key": "baseball_mlb",
+    "sport_title": "MLB",
+    "commence_time": "2025-05-14T01:40:00Z",
+    "home_team": "Seattle Mariners",
+    "away_team": "New York Yankees",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2025-05-14T01:11:29Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "New York Yankees",
+                "price": 1.69
+              },
+              {
+                "name": "Seattle Mariners",
+                "price": 2.33
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "New York Yankees",
+                "price": 2.23,
+                "point": -1.5
+              },
+              {
+                "name": "Seattle Mariners",
+                "price": 1.74,
+                "point": 1.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 2.02,
+                "point": 7.5
+              },
+              {
+                "name": "Under",
+                "price": 1.87,
+                "point": 7.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "677160254521ac8b0ade4d4d228c9fcf",
+    "sport_key": "baseball_mlb",
+    "sport_title": "MLB",
+    "commence_time": "2025-05-14T01:45:00Z",
+    "home_team": "San Francisco Giants",
+    "away_team": "Arizona Diamondbacks",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2025-05-14T01:11:29Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Arizona Diamondbacks",
+                "price": 1.89
+              },
+              {
+                "name": "San Francisco Giants",
+                "price": 2.04
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Arizona Diamondbacks",
+                "price": 2.5,
+                "point": -1.5
+              },
+              {
+                "name": "San Francisco Giants",
+                "price": 1.6,
+                "point": 1.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.94,
+                "point": 7.5
+              },
+              {
+                "name": "Under",
+                "price": 1.94,
+                "point": 7.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "f4182e2059cc98d99eda35c8ef8c0ec4",
+    "sport_key": "baseball_mlb",
+    "sport_title": "MLB",
+    "commence_time": "2025-05-14T02:10:00Z",
+    "home_team": "Los Angeles Dodgers",
+    "away_team": "Oakland Athletics",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2025-05-14T01:11:29Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Los Angeles Dodgers",
+                "price": 1.54
+              },
+              {
+                "name": "Oakland Athletics",
+                "price": 2.69
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Los Angeles Dodgers",
+                "price": 2.04,
+                "point": -1.5
+              },
+              {
+                "name": "Oakland Athletics",
+                "price": 1.88,
+                "point": 1.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2025-05-14T01:11:29Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 2.02,
+                "point": 9.5
+              },
+              {
+                "name": "Under",
+                "price": 1.87,
+                "point": 9.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

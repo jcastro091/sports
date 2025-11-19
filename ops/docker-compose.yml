@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  autoposter:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.autoposter
+    env_file:
+      - /opt/env/autoposter.env
+    volumes:
+      - /opt/logs:/logs
+    restart: unless-stopped

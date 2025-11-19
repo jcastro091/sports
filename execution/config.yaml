@@ -1,0 +1,35 @@
+# config.yaml
+env: prod
+dry_run: false                # true = simulate orders; false = place real demo orders
+kalshi:
+  base_url: "https://trading-api.kalshi.com" # demo - "https://demo-api.kalshi.co"
+  key_id: "b1947b44-d40e-4afd-8e85-fdca0426e40a" # demo - "6983d0be-674b-455d-b8fd-91c42a657a47"
+  private_key_file: "C:/Users/Jcast/OneDrive/Documents/sports-repo/keys/kalshi-demo-keyPROD.pem" # demo -"C:\\Users\\Jcast\\OneDrive\\Documents\\sports-repo\\keys\\kalshi-demo-key.pem"
+  request_timeout_sec: 10
+  max_retries: 3
+  retry_backoff_sec: 1.0
+  default_tif: "IOC"          # IOC | FOK | GTC | GTD (adapter can override per order)
+  KALSHI_USE_RAW: 1
+
+sheets:
+  spreadsheet_id: "1Vl9ceOFI5LSqXuVoGGUE3h4JZ685oZfRbbPIPdnGsGo"
+  obs_worksheet: "AllObservations"   # source (later you can switch to AllBets)
+  out_worksheet: "AllContracts"      # receipts sink
+  service_account_json: "C:\\Users\\Jcast\\OneDrive\\Documents\\sports-repo\\telegrambetlogger-35856685bc29.json"
+
+risk:
+  max_order_usd: 150           # per order cap
+  daily_exposure_usd: 1000     # rough cap (implement in RiskManager)
+  min_price: 0.05              # dollars (adapter will convert to cents when needed)
+  max_price: 0.95
+
+watcher:
+  poll_sec: 30
+
+healthcheck:
+  url: "https://hc-ping.com/da436823-59e7-4a0f-afd2-a45bae23c4d1"
+  file: ""                     # e.g., "C:\\tmp\\kalshi.lastbeat"
+
+logging:
+  level: "DEBUG"                # DEBUG | INFO | WARNING | ERROR
+

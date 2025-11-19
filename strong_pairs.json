@@ -1,0 +1,38 @@
+[
+  {
+    "sport": "soccer_italy_serie_a",
+    "market": "H2H Away"
+  },
+  {
+    "sport": "soccer_italy_serie_a",
+    "market": "Spread Away"
+  },
+  {
+    "sport": "soccer_italy_serie_a",
+    "market": "Total Under"
+  },
+  {
+    "sport": "soccer_usa_mls",
+    "market": "H2H Away"
+  },
+  {
+    "sport": "soccer_usa_mls",
+    "market": "Spread Away"
+  },
+  {
+    "sport": "soccer_usa_mls",
+    "market": "Total Under"
+  },
+  {
+    "sport": "soccer_germany_bundesliga",
+    "market": "H2H Away"
+  },
+  {
+    "sport": "soccer_germany_bundesliga",
+    "market": "Spread Away"
+  },
+  {
+    "sport": "soccer_germany_bundesliga",
+    "market": "Total Under"
+  }
+]

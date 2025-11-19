@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environment
+.env
+.env.*
+!*.env.example
+
+# Credentials
+creds/*.json
+keys/*.json
+
+# Logs & State
+logs/
+*.log
+peak_prices*.json
+tracked_games*.json
+recent_picks*.json
+recent_props*.json
+
+# Data / exports
+*.csv
+*.xlsx
+*.txt
+
+# Virtual env
+.venv/
+
+# OS junk
+.DS_Store
+Thumbs.db
