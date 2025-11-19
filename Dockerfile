@@ -1,0 +1,25 @@
+# Dockerfile for sports engine (SharpsSignal)
+FROM python:3.11-slim
+
+# Prevent Python from writing .pyc files and buffering stdout
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Set workdir
+WORKDIR /app
+
+# Install system deps (you can add more if needed)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the repo
+COPY . .
+
+# Default command: run sports engine
+# You can override this in ECS/Airflow if needed
+CMD ["python", "out_sports21_fixed_EDGE.py", "--verbose"]

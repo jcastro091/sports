@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual env
+.venv/
+**/.venv/
+
+# Environment files
+.env
+.env.*
+!*.env.example
+
+# Credentials (never bake into the image)
+creds/
+keys/
+autoposter/*.json
+
+# Logs & state
+logs/
+*.log
+peak_prices*.json
+tracked_games*.json
+recent_picks*.json
+recent_props*.json
+odds_cache.json
+pregame_closes.json
+
+# Data / exports
+*.csv
+*.xlsx
+*.txt
+!requirements.txt
+
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
