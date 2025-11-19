@@ -1,0 +1,10 @@
+﻿aiohttp
+requests
+pytz
+gspread
+oauth2client
+python-telegram-bot==13.15
+python-dateutil
+python-dotenv
+pandas
+numpy

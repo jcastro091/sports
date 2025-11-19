@@ -32,3 +32,6 @@ recent_props*.json
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Keep Docker requirements file
+!requirements.txt
