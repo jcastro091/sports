@@ -14,6 +14,7 @@ autoposter/*.json
 
 # Logs & State
 logs/
+__pycache__/
 *.log
 peak_prices*.json
 tracked_games*.json
@@ -32,6 +33,12 @@ recent_props*.json
 # OS junk
 .DS_Store
 Thumbs.db
+
+# secrets
+.env
+creds/*.json
+
+
 
 # Keep Docker requirements file
 !requirements.txt

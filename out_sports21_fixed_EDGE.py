@@ -15,29 +15,38 @@ from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Bot
 from dateutil import parser
 from gspread.exceptions import APIError
+from importlib.util import spec_from_file_location, module_from_spec
+from pathlib import Path
 
 # --- NEW: load .env so GOOGLE_CREDS_FILE and others are picked up ---
 from dotenv import load_dotenv
 load_dotenv()  # will read .env in the current working directory
 
+
+def getenv_int(key: str, default: int) -> int:
+    val = os.getenv(key, str(default))
+    # Remove inline comments
+    val = val.split("#")[0].strip()
+    return int(val)
+
+
 # ===== ML hook =====
-import importlib.util, pathlib, os, sys, logging
 
-
-ENGINE_ROOT = os.getenv("ENGINE_ROOT", r"C:\Users\Jcast\OneDrive\Documents\alpha_signal_engine")
-if ENGINE_ROOT not in sys.path:
-    sys.path.insert(0, ENGINE_ROOT)
 
 try:
-    from src.ml_predict import predict_win_prob      # normal package import
+    # Preferred: when alpha_signal_engine is installed as a package
+    from src.ml_predict import predict_win_prob  # type: ignore
 except ModuleNotFoundError:
-    p = pathlib.Path(ENGINE_ROOT) / "src" / "ml_predict.py"
-    spec = importlib.util.spec_from_file_location("ml_predict", str(p))
-    _mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(_mod)
-    predict_win_prob = _mod.predict_win_prob
+    # Fallback: load ml_predict.py from a *relative* path in this repo
+    base_dir = Path(__file__).resolve().parent / "alpha_signal_engine" / "src"
+    ml_path = base_dir / "ml_predict.py"
 
-logging.info("✅ ML hook loaded from %s", ENGINE_ROOT)
+    spec = spec_from_file_location("ml_predict", ml_path)
+    _mod = module_from_spec(spec)  # type: ignore[arg-type]
+    assert spec.loader is not None
+    spec.loader.exec_module(_mod)
+    predict_win_prob = _mod.predict_win_prob  # type: ignore[attr-defined]
+
 
 
 
@@ -92,7 +101,8 @@ logging.info("✅ sports.py started (verbose=%s)", args.verbose)
 logging.info("📂 Logging to %s", log_file)
 
 
-logging.info("✅ ML hook loaded from %s", ENGINE_ROOT)
+logging.info("⚙️ ML hook loaded and ready")
+
 
 
 
@@ -177,11 +187,11 @@ TAB_OBS  = os.getenv("TAB_OBS", "AllObservations")
 GOOGLE_CREDS_FILE = os.getenv("GOOGLE_CREDS_FILE", os.path.join(os.path.dirname(__file__), "telegrambetlogger-35856685bc29.json"))
 
 # ========= Config =========
-ALERT_WINDOW_MIN = int(os.getenv("ALERT_WINDOW_MIN", "60"))
-SEEN_RECENT_SEC  = int(os.getenv("SEEN_RECENT_SEC", "3600"))
-MIN_MINUTES_SINCE_PEAK = int(os.getenv("MIN_MINUTES_SINCE_PEAK", "5"))  
+ALERT_WINDOW_MIN = getenv_int("ALERT_WINDOW_MIN", 60)
+SEEN_RECENT_SEC  = getenv_int("SEEN_RECENT_SEC", 3600)
+MIN_MINUTES_SINCE_PEAK = getenv_int("MIN_MINUTES_SINCE_PEAK", 5)
+TRACK_BASE = getenv_int("TRACK_BASE", 300)
 
-TRACK_BASE = int(os.getenv("TRACK_BASE", "300"))
 DEFAULT_BANKROLL = float(os.getenv("BANKROLL", "10000"))
 
 STRONG_CONFIG_JSON = os.getenv("STRONG_CONFIG_JSON", "strong_config.json")

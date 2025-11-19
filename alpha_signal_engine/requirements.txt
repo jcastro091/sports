@@ -1,0 +1,12 @@
+pandas
+duckdb
+pyyaml
+scikit-learn
+lightgbm
+matplotlib
+jinja2
+numpy
+scipy
+joblib
+requests
+

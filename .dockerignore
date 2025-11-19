@@ -16,7 +16,6 @@ __pycache__/
 !*.env.example
 
 # Credentials (never bake into the image)
-creds/
 keys/
 autoposter/*.json
 

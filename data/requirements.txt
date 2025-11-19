@@ -1,0 +1,5 @@
+schemachange==3.6.1
+dbt-snowflake==1.8.4
+snowflake-cli-python==2.5.0
+sqlfluff==3.1.0
+sqlfluff-templater-dbt==3.1.0
