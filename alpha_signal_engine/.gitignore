@@ -1,0 +1,16 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# data
+/data/*.duckdb
+/data/results/*
+/data/raw/*
+/notebooks/.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db

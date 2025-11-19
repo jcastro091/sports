@@ -1,0 +1,26 @@
+[
+  {
+    "Market": "H2H Home",
+    "Direction": "Underdog",
+    "Movement": "+110 → +105 (Down)",
+    "Confidence": "High",
+    "Odds Taken": "+105",
+    "Tags": "Other"
+  },
+  {
+    "Market": "H2H Home",
+    "Direction": "Underdog",
+    "Movement": "+287 → +273 (Down)",
+    "Confidence": "Medium",
+    "Odds Taken": "+120",
+    "Tags": "H2H Underdog"
+  },
+  {
+    "Market": "Spread Favorite",
+    "Direction": "Favorite",
+    "Movement": "-110 → -115 (Up)",
+    "Confidence": "Low",
+    "Odds Taken": "-115",
+    "Tags": "Spread Favorite"
+  }
+]

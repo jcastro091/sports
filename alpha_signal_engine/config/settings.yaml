@@ -1,0 +1,14 @@
+paths:
+  data_dir: "./data"
+  raw_dir: "./data/raw"
+  results_dir: "./data/results"
+  # rename this to match your actual filename (AllBets.csv or bets_dataset.csv)
+  allbets_csv: "./data/bets_dataset.csv"
+
+storage:
+  duckdb_file: "./data/alpha_signal.duckdb"
+
+apis:
+  the_odds_api_key: "REPLACE_ME"   # optional for later
+  telegram_bot_token: "REPLACE_ME" # used by predict_live.py
+  telegram_chat_id: "REPLACE_ME"   # your channel/user id
