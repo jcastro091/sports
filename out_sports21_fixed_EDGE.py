@@ -1393,3 +1393,4 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error("❌ Unhandled exception: %s", e, exc_info=True)
         hb_ping("fail")
+# Trigger ECR build
