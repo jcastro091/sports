@@ -10,6 +10,7 @@ __pycache__/
 # Credentials
 creds/*.json
 keys/*.json
+autoposter/*.json
 
 # Logs & State
 logs/
