@@ -1,0 +1,26 @@
+# docker/Dockerfile.trainer
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps (build tools etc)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps (reusing your repo requirements)
+COPY requirements.txt ./requirements-ml.txt
+RUN pip install --no-cache-dir -r requirements-ml.txt \
+    mlflow boto3 python-telegram-bot==13.15 python-dotenv
+
+# Copy the whole repo (sports + alpha engine)
+COPY . .
+
+# Set engine root env
+ENV ALPHA_ENGINE_ROOT=/app/alpha_signal_engine
+
+# Default working dir for training
+WORKDIR /app/alpha_signal_engine
+
+ENTRYPOINT ["python", "-m", "src.train_model"]

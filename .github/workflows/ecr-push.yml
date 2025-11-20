@@ -1,4 +1,4 @@
-name: Build and Push Sports Image to ECR
+name: Build and Push Images to ECR
 
 on:
   push:
@@ -6,9 +6,9 @@ on:
       - main
     paths:
       - '**/*.py'
-      - Dockerfile
-      - requirements.txt
+      - 'docker/**'
       - 'alpha_signal_engine/**'
+      - 'requirements.txt'
       - '.github/workflows/ecr-push.yml'
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -30,17 +30,48 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image
+      # --------------------------------------------------
+      # 1) SPORTS RUNNER IMAGE (existing behavior)
+      # --------------------------------------------------
+      - name: Build, tag, and push SPORTS image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}          # existing secret
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "Building image..."
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-
-          echo "Pushing image with SHA tag..."
+          echo "Building SPORTS image..."
+          docker build -f docker/Dockerfile.sports -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          echo "Pushing SPORTS image..."
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "Done pushing SPORTS image."
 
-          echo "Done."
+      # --------------------------------------------------
+      # 2) TRAINER IMAGE (new – for weekly model training)
+      # --------------------------------------------------
+      - name: Build, tag, and push TRAINER image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY_TRAINER: ${{ secrets.ECR_REPOSITORY_TRAINER }}  # new secret
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Building TRAINER image..."
+          docker build -f docker/Dockerfile.trainer -t $ECR_REGISTRY/$ECR_REPOSITORY_TRAINER:$IMAGE_TAG .
+          echo "Pushing TRAINER image..."
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_TRAINER:$IMAGE_TAG
+          echo "Done pushing TRAINER image."
 
+      # --------------------------------------------------
+      # 3) MLFLOW IMAGE (optional – comment out if not using)
+      # --------------------------------------------------
+      - name: Build, tag, and push MLFLOW image
+        if: secrets.ECR_REPOSITORY_MLFLOW != ''   # only runs if secret is set
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY_MLFLOW: ${{ secrets.ECR_REPOSITORY_MLFLOW }}  # new secret (optional)
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Building MLFLOW image..."
+          docker build -f docker/Dockerfile.mlflow -t $ECR_REGISTRY/$ECR_REPOSITORY_MLFLOW:$IMAGE_TAG .
+          echo "Pushing MLFLOW image..."
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_MLFLOW:$IMAGE_TAG
+          echo "Done pushing MLFLOW image."

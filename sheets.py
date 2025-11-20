@@ -7,6 +7,9 @@ import requests
 import gspread
 import pandas as pd
 import pytz
+import os
+from pathlib import Path
+
 from dateutil import parser
 from difflib import get_close_matches
 from gspread.utils import rowcol_to_a1
@@ -98,7 +101,15 @@ logging.debug("Logger initialized (file + safe console)")
 
 # ── SHEETS ───────────────────────────────────────────────────────────
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS = ServiceAccountCredentials.from_json_keyfile_name("telegrambetlogger-35856685bc29.json", SCOPE)
+# Path to Google service account JSON (can be overridden via env var GOOGLE_CREDS_FILE)
+BASE_DIR = Path(__file__).resolve().parent
+CREDS_FILE = os.getenv(
+    "GOOGLE_CREDS_FILE",
+    str(BASE_DIR / "creds" / "telegrambetlogger-35856685bc29.json"),
+)
+
+CREDS = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, SCOPE)
+
 CLIENT = gspread.authorize(CREDS)
 
 # --- Add this helper block (right after CLIENT = gspread.authorize(CREDS)) ---

@@ -17,6 +17,10 @@ from dateutil import parser
 from gspread.exceptions import APIError
 from importlib.util import spec_from_file_location, module_from_spec
 from pathlib import Path
+from alpha_signal_engine.src.model_registry_s3 import download_latest_model_from_s3
+download_latest_model_from_s3()
+
+
 
 # --- NEW: load .env so GOOGLE_CREDS_FILE and others are picked up ---
 from dotenv import load_dotenv
@@ -184,7 +188,11 @@ SPORTS_LIST: List[str] = [
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "ConfirmedBets")
 TAB_BETS = os.getenv("TAB_BETS", "AllBets")
 TAB_OBS  = os.getenv("TAB_OBS", "AllObservations")
-GOOGLE_CREDS_FILE = os.getenv("GOOGLE_CREDS_FILE", os.path.join(os.path.dirname(__file__), "telegrambetlogger-35856685bc29.json"))
+GOOGLE_CREDS_FILE = os.getenv(
+    "GOOGLE_CREDS_FILE",
+    os.path.join(os.path.dirname(__file__), "creds", "telegrambetlogger-35856685bc29.json")
+)
+
 
 # ========= Config =========
 ALERT_WINDOW_MIN = getenv_int("ALERT_WINDOW_MIN", 60)

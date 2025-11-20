@@ -10,8 +10,8 @@
     "Total Under"
   ],
   "odds_bin": [
-    "Dog",
-    "Fav"
+    "Fav",
+    "Dog"
   ],
   "min_proba": 0.58,
   "max_proba": 0.61
