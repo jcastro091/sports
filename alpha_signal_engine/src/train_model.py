@@ -22,6 +22,10 @@ import json
 import numpy as np
 import pandas as pd
 import joblib
+import logging
+
+import datetime
+import boto3
 
 from sklearn.model_selection import learning_curve
 from sklearn.linear_model import LogisticRegression
@@ -56,6 +60,57 @@ TIER_CONFIG_OUT = SPORTS_REPO_ROOT / "tier_config.json"
 
 
 # ---------- Helpers ----------
+S3_LOGGER = logging.getLogger("s3_upload")
+
+
+def _get_s3_client():
+    """
+    Returns a boto3 S3 client or None if not configured.
+    """
+    try:
+        return boto3.client("s3")
+    except Exception as e:
+        S3_LOGGER.warning("Could not create S3 client: %s", e)
+        return None
+
+
+def upload_to_s3(local_path: str, prefix_env: str, default_prefix: str = ""):
+    """
+    Upload a local file to S3 using env vars:
+
+      ML_BUCKET           - bucket name (required)
+      <prefix_env>        - folder/prefix under the bucket (optional)
+
+    Files are stored under: s3://ML_BUCKET/<prefix>/<UTC-timestamp>/<filename>
+    """
+    bucket = os.getenv("ML_BUCKET")
+    if not bucket:
+        S3_LOGGER.info("ML_BUCKET not set; skipping S3 upload for %s", local_path)
+        return
+
+    if not os.path.exists(local_path):
+        S3_LOGGER.warning("Local file does not exist, skip upload: %s", local_path)
+        return
+
+    s3 = _get_s3_client()
+    if s3 is None:
+        return
+
+    prefix = os.getenv(prefix_env, default_prefix).strip("/")
+    ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = os.path.basename(local_path)
+
+    key_parts = [p for p in [prefix, ts, filename] if p]
+    key = "/".join(key_parts)
+
+    try:
+        s3.upload_file(local_path, bucket, key)
+        S3_LOGGER.info("Uploaded %s -> s3://%s/%s", local_path, bucket, key)
+    except Exception as e:
+        S3_LOGGER.error("Failed to upload %s to s3://%s/%s: %s", local_path, bucket, key, e)
+
+
+
 def _resolve_data_file(name: str) -> Path:
     return DATA_DIR / name
 
@@ -1115,6 +1170,32 @@ def train_models(dataset_name: str | None = None):
             print(f"📝 Saved segment reports → {MODEL_DIR}")
         except Exception as e:
             print(f"[warn] Could not save segment CSVs: {e}")
+
+        # ---- S3 uploads for model registry ----
+        try:
+            # NOTE: update these paths if you ever change where you save files
+            model_dir = Path("data/results/models")
+
+            best_model_path = model_dir / "baseline_winloss.pkl"
+            feature_file_path = model_dir / "model_features.pkl"
+            tier_config_path = Path("tier_config.json")  # saved in repo root
+            model_card_path = model_dir / "model_card.json"
+            metrics_path = model_dir / "weekly_metrics.csv"
+
+            # Upload core model artifacts
+            upload_to_s3(str(best_model_path), "ML_MODELS_PREFIX")
+            upload_to_s3(str(feature_file_path), "ML_MODELS_PREFIX")
+
+            # Upload “metadata” / docs
+            upload_to_s3(str(tier_config_path), "ML_METADATA_PREFIX")
+            upload_to_s3(str(model_card_path), "ML_METADATA_PREFIX")
+            upload_to_s3(str(metrics_path), "ML_METADATA_PREFIX")
+
+        except Exception as e:
+            S3_LOGGER.error("Error while uploading artifacts to S3: %s", e)
+
+
+
 
     except Exception as e:
         print(f"[warn] Could not compute segment reports: {e}")
