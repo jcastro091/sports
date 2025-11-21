@@ -52,63 +52,44 @@ DATA_DIR = ENGINE_ROOT / "data"
 MODEL_DIR = DATA_DIR / "results" / "models"
 MODEL_PKL = MODEL_DIR / "baseline_winloss.pkl"
 FEATS_PKL = MODEL_DIR / "model_features.pkl"
-SPORTS_REPO_ROOT = Path(os.getenv(
-    "SPORTS_REPO_ROOT",
-    r"C:\Users\Jcast\OneDrive\Documents\sports-repo"
-))
-TIER_CONFIG_OUT = SPORTS_REPO_ROOT / "tier_config.json"
+TIER_CONFIG_OUT = ENGINE_ROOT / "tier_config.json"
+
 
 
 # ---------- Helpers ----------
+# ---------- S3 upload helper ----------
 S3_LOGGER = logging.getLogger("s3_upload")
 
+THIS_DIR = Path(__file__).resolve().parent       # /app/alpha_signal_engine/src
+PROJECT_ROOT = THIS_DIR.parent                   # /app/alpha_signal_engine
+RESULTS_DIR = PROJECT_ROOT / "data" / "results" / "models"
 
-def _get_s3_client():
-    """
-    Returns a boto3 S3 client or None if not configured.
-    """
-    try:
-        return boto3.client("s3")
-    except Exception as e:
-        S3_LOGGER.warning("Could not create S3 client: %s", e)
-        return None
+def upload_artifacts_to_s3():
+    bucket = os.getenv("S3_MODEL_BUCKET")  # or ML_BUCKET if you prefer existing env
+    prefix = os.getenv("S3_MODELS_PREFIX", "models/")
 
-
-def upload_to_s3(local_path: str, prefix_env: str, default_prefix: str = ""):
-    """
-    Upload a local file to S3 using env vars:
-
-      ML_BUCKET           - bucket name (required)
-      <prefix_env>        - folder/prefix under the bucket (optional)
-
-    Files are stored under: s3://ML_BUCKET/<prefix>/<UTC-timestamp>/<filename>
-    """
-    bucket = os.getenv("ML_BUCKET")
     if not bucket:
-        S3_LOGGER.info("ML_BUCKET not set; skipping S3 upload for %s", local_path)
+        S3_LOGGER.info("S3_MODEL_BUCKET not set; skipping model upload.")
         return
 
-    if not os.path.exists(local_path):
-        S3_LOGGER.warning("Local file does not exist, skip upload: %s", local_path)
-        return
+    s3 = boto3.client("s3")
 
-    s3 = _get_s3_client()
-    if s3 is None:
-        return
+    files = [
+        RESULTS_DIR / "baseline_winloss.pkl",
+        RESULTS_DIR / "model_features.pkl",
+        PROJECT_ROOT / "tier_config.json",
+        RESULTS_DIR / "model_card.json",
+        RESULTS_DIR / "weekly_metrics.csv",
+    ]
 
-    prefix = os.getenv(prefix_env, default_prefix).strip("/")
-    ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    filename = os.path.basename(local_path)
+    for fpath in files:
+        if not fpath.exists():
+            S3_LOGGER.info(f"Skipping, does not exist: {fpath}")
+            continue
 
-    key_parts = [p for p in [prefix, ts, filename] if p]
-    key = "/".join(key_parts)
-
-    try:
-        s3.upload_file(local_path, bucket, key)
-        S3_LOGGER.info("Uploaded %s -> s3://%s/%s", local_path, bucket, key)
-    except Exception as e:
-        S3_LOGGER.error("Failed to upload %s to s3://%s/%s: %s", local_path, bucket, key, e)
-
+        key = prefix.rstrip("/") + "/" + fpath.name
+        s3.upload_file(str(fpath), bucket, key)
+        S3_LOGGER.info(f"Uploaded {fpath} → s3://{bucket}/{key}")
 
 
 def _resolve_data_file(name: str) -> Path:
@@ -1171,31 +1152,6 @@ def train_models(dataset_name: str | None = None):
         except Exception as e:
             print(f"[warn] Could not save segment CSVs: {e}")
 
-        # ---- S3 uploads for model registry ----
-        try:
-            # NOTE: update these paths if you ever change where you save files
-            model_dir = Path("data/results/models")
-
-            best_model_path = model_dir / "baseline_winloss.pkl"
-            feature_file_path = model_dir / "model_features.pkl"
-            tier_config_path = Path("tier_config.json")  # saved in repo root
-            model_card_path = model_dir / "model_card.json"
-            metrics_path = model_dir / "weekly_metrics.csv"
-
-            # Upload core model artifacts
-            upload_to_s3(str(best_model_path), "ML_MODELS_PREFIX")
-            upload_to_s3(str(feature_file_path), "ML_MODELS_PREFIX")
-
-            # Upload “metadata” / docs
-            upload_to_s3(str(tier_config_path), "ML_METADATA_PREFIX")
-            upload_to_s3(str(model_card_path), "ML_METADATA_PREFIX")
-            upload_to_s3(str(metrics_path), "ML_METADATA_PREFIX")
-
-        except Exception as e:
-            S3_LOGGER.error("Error while uploading artifacts to S3: %s", e)
-
-
-
 
     except Exception as e:
         print(f"[warn] Could not compute segment reports: {e}")
@@ -1522,15 +1478,10 @@ if __name__ == "__main__":
     # NEW: chronological split flag
     parser.add_argument("--chronological", action="store_true", help="Use time-aware train/test split (train past, test future)")
     args = parser.parse_args()
-
-    # pass toggles via env so train_models can pick them up without changing its signature
-    if args.tune:
-        os.environ["DO_TUNE"] = "1"
-    if args.pca:
-        os.environ["DO_PCA"] = "1"
-    if args.chronological:
-        os.environ["DO_CHRONO"] = "1"
-
+    
+    os.environ["DO_CHRONO"] = "1" if args.chronological else "0"
     train_models(dataset_name=args.dataset)
+    upload_artifacts_to_s3()
+
 
 
