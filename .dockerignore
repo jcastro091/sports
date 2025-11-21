@@ -30,7 +30,6 @@ odds_cache.json
 pregame_closes.json
 
 # Data / exports
-*.csv
 *.xlsx
 *.txt
 !requirements.txt
