@@ -1,36 +1,22 @@
-# Dockerfile for sports engine (SharpsSignal)
+# Dockerfile.sports (final)
+
 FROM python:3.11-slim
 
-# Prevent Python from writing .pyc files and buffering stdout
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Set workdir
 WORKDIR /app
 
-# Install system deps (you can add more if needed)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the repo
+# bring in the whole repo (sports.py, out_sports21_fixed_EDGE.py, etc.)
 COPY . .
 
-# add this if not already there
-RUN mkdir -p /app/creds
+# (NO creds COPY here – secrets come from env vars at runtime)
 
-
-# copy the google key into the image
-COPY ./creds/telegrambetlogger-35856685bc29.json /app/creds/telegrambetlogger.json
-
-
-# optionally set default env
-ENV GOOGLE_CREDS_FILE=/creds/telegrambetlogger-35856685bc29.json
-
-# Default command: run sports engine
-# You can override this in ECS/Airflow if needed
 CMD ["python", "out_sports21_fixed_EDGE.py", "--verbose"]
