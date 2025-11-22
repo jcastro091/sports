@@ -56,6 +56,7 @@ TIER_CONFIG_OUT = ENGINE_ROOT / "tier_config.json"
 
 
 
+
 # ---------- Helpers ----------
 # ---------- S3 upload helper ----------
 S3_LOGGER = logging.getLogger("s3_upload")
@@ -65,7 +66,11 @@ PROJECT_ROOT = THIS_DIR.parent                   # /app/alpha_signal_engine
 RESULTS_DIR = PROJECT_ROOT / "data" / "results" / "models"
 
 def upload_artifacts_to_s3():
-    bucket = os.getenv("S3_MODEL_BUCKET")  # or ML_BUCKET if you prefer existing env
+    """
+    Upload final model artifacts using the absolute paths defined at the top.
+    This avoids the 'local file does not exist, skip upload' problem.
+    """
+    bucket = os.getenv("S3_MODEL_BUCKET")
     prefix = os.getenv("S3_MODELS_PREFIX", "models/")
 
     if not bucket:
@@ -74,12 +79,13 @@ def upload_artifacts_to_s3():
 
     s3 = boto3.client("s3")
 
+    # ---- ABSOLUTE paths (guaranteed correct) ----
     files = [
-        RESULTS_DIR / "baseline_winloss.pkl",
-        RESULTS_DIR / "model_features.pkl",
-        PROJECT_ROOT / "tier_config.json",
-        RESULTS_DIR / "model_card.json",
-        RESULTS_DIR / "weekly_metrics.csv",
+        MODEL_PKL,                          # /app/alpha_signal_engine/data/results/models/baseline_winloss.pkl
+        FEATS_PKL,                          # /app/alpha_signal_engine/data/results/models/model_features.pkl
+        TIER_CONFIG_OUT,                    # /app/alpha_signal_engine/tier_config.json
+        MODEL_DIR / "model_card.json",      # /app/.../data/results/models/model_card.json
+        MODEL_DIR / "weekly_metrics.csv",   # /app/.../data/results/models/weekly_metrics.csv
     ]
 
     for fpath in files:
@@ -88,8 +94,13 @@ def upload_artifacts_to_s3():
             continue
 
         key = prefix.rstrip("/") + "/" + fpath.name
-        s3.upload_file(str(fpath), bucket, key)
-        S3_LOGGER.info(f"Uploaded {fpath} → s3://{bucket}/{key}")
+
+        try:
+            s3.upload_file(str(fpath), bucket, key)
+            S3_LOGGER.info(f"Uploaded {fpath} → s3://{bucket}/{key}")
+        except Exception as e:
+            S3_LOGGER.error(f"Failed upload {fpath}: {e}")
+
 
 
 def _resolve_data_file(name: str) -> Path:
