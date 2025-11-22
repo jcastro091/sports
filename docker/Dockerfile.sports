@@ -24,10 +24,10 @@ COPY . .
 RUN mkdir -p /app/creds
 
 # copy the google key into the image
-COPY creds/google_creds.json /app/creds/google_creds.json
+COPY creds/telegrambetlogger-35856685bc29.json /app/creds/telegrambetlogger-35856685bc29.json
 
 # optionally set default env
-ENV GOOGLE_CREDS_FILE=/app/creds/google_creds.json
+ENV GOOGLE_CREDS_FILE=/app/creds/telegrambetlogger-35856685bc29.json
 
 # Default command: run sports engine
 # You can override this in ECS/Airflow if needed
