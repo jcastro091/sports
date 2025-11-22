@@ -67,25 +67,32 @@ RESULTS_DIR = PROJECT_ROOT / "data" / "results" / "models"
 
 def upload_artifacts_to_s3():
     """
-    Upload final model artifacts using the absolute paths defined at the top.
-    This avoids the 'local file does not exist, skip upload' problem.
+    Upload final model artifacts to S3.
+
+    Supports either:
+      - S3_MODEL_BUCKET / S3_MODELS_PREFIX
+      - ML_BUCKET / ML_MODELS_PREFIX
     """
-    bucket = os.getenv("S3_MODEL_BUCKET")
-    prefix = os.getenv("S3_MODELS_PREFIX", "models/")
+    # Bucket: prefer S3_* but fall back to ML_*
+    bucket = os.getenv("S3_MODEL_BUCKET") or os.getenv("ML_BUCKET")
+    prefix = (
+        os.getenv("S3_MODELS_PREFIX")
+        or os.getenv("ML_MODELS_PREFIX")
+        or "models"
+    )
 
     if not bucket:
-        S3_LOGGER.info("S3_MODEL_BUCKET not set; skipping model upload.")
+        S3_LOGGER.info("No S3 bucket env set (S3_MODEL_BUCKET or ML_BUCKET); skipping model upload.")
         return
 
     s3 = boto3.client("s3")
 
-    # ---- ABSOLUTE paths (guaranteed correct) ----
     files = [
-        MODEL_PKL,                          # /app/alpha_signal_engine/data/results/models/baseline_winloss.pkl
-        FEATS_PKL,                          # /app/alpha_signal_engine/data/results/models/model_features.pkl
-        TIER_CONFIG_OUT,                    # /app/alpha_signal_engine/tier_config.json
-        MODEL_DIR / "model_card.json",      # /app/.../data/results/models/model_card.json
-        MODEL_DIR / "weekly_metrics.csv",   # /app/.../data/results/models/weekly_metrics.csv
+        MODEL_PKL,                        # /app/alpha_signal_engine/data/results/models/baseline_winloss.pkl
+        FEATS_PKL,                        # /app/.../model_features.pkl
+        TIER_CONFIG_OUT,                  # /app/alpha_signal_engine/tier_config.json
+        MODEL_DIR / "model_card.json",    # /app/.../model_card.json
+        MODEL_DIR / "weekly_metrics.csv", # /app/.../weekly_metrics.csv
     ]
 
     for fpath in files:
@@ -94,7 +101,6 @@ def upload_artifacts_to_s3():
             continue
 
         key = prefix.rstrip("/") + "/" + fpath.name
-
         try:
             s3.upload_file(str(fpath), bucket, key)
             S3_LOGGER.info(f"Uploaded {fpath} → s3://{bucket}/{key}")
