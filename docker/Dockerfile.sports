@@ -20,6 +20,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the repo
 COPY . .
 
+# add this if not already there
+RUN mkdir -p /app/creds
+
+# copy the google key into the image
+COPY creds/google_creds.json /app/creds/google_creds.json
+
+# optionally set default env
+ENV GOOGLE_CREDS_FILE=/app/creds/google_creds.json
+
 # Default command: run sports engine
 # You can override this in ECS/Airflow if needed
 CMD ["python", "out_sports21_fixed_EDGE.py", "--verbose"]
