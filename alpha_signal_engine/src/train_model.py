@@ -27,6 +27,9 @@ import logging
 import datetime
 import boto3
 
+import mlflow
+import mlflow.sklearn
+
 from sklearn.model_selection import learning_curve
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -314,6 +317,12 @@ def run_drift_checks(model, X_train, y_train, X_test, y_test, out_dir: Path, ale
         alerts.append(f"Generalization gap large: train AUC {auc_train:.3f} → test AUC {auc_test:.3f} (Δ ≥ 0.07)")
     if week_drop is not None and week_drop <= -0.05:
         alerts.append(f"Recent weekly AUC drop: {week_drop:.3f} (≤ -0.05)")
+        
+
+    mlflow.log_metric("drift_auc_train", auc_train if auc_train else 0)
+    mlflow.log_metric("drift_auc_test", auc_test if auc_test else 0)
+    mlflow.log_metric("drift_psi", psi if psi else 0)
+
 
     # Persist a tiny health file
     pd.DataFrame([{
@@ -827,7 +836,8 @@ def hyperparameter_tune(X, y, pre, n_iter=25, cv_splits=5, random_state=42):
     searches = [
         ("Logistic Regression", logreg, lr_space),
         ("Random Forest", rf, rf_space),
-        ("HistGradientBoosting (GBT)", hgb, hgb_space),
+        ("HistGradientBoosting_GBT", hgb, hgb_space),
+
     ]
 
     tuned = {}
@@ -858,6 +868,12 @@ def hyperparameter_tune(X, y, pre, n_iter=25, cv_splits=5, random_state=42):
 # Train / Evaluate / Select model
 # ============================
 def train_models(dataset_name: str | None = None):
+    
+    # --- MLflow setup ---
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns"))
+    mlflow.set_experiment(os.getenv("MLFLOW_EXPERIMENT_NAME", "alpha_signal_engine"))
+        
+    
     # Build from CSV (we keep DuckDB optional; CSV is robust)
     csv_name = dataset_name or os.getenv("DATASET_NAME", "ConfirmedBets - AllObservations.csv")
     X, y, pre, num_feats, cat_feats = build_from_csv(csv_name)
@@ -892,18 +908,39 @@ def train_models(dataset_name: str | None = None):
         csv_path_local = _resolve_data_file(csv_name_local)
         try:
             df_all_rows = pd.read_csv(csv_path_local)
-            date_col = _find_col_ci(df_all_rows, "Timestamp", "Date", "Game Time", "GameTime")
+
+            # Try to find a usable datetime column
+            date_col = _find_col_ci(
+                df_all_rows,
+                "Timestamp", "Date", "Game Time", "GameTime"
+            )
             if date_col is None:
                 print("[warn] Chronological split requested but no Timestamp/Date/Game Time column found; falling back to random split.")
             else:
-                dt_series = pd.to_datetime(df_all_rows.loc[X.index, date_col], errors="coerce", utc=True, infer_datetime_format=True)
-                if dt_series.notna().sum() < max(100, int(0.5 * len(dt_series))):
-                    print("[warn] Chronological split requested but too many missing/invalid dates; falling back to random split.")
+                # Parse datetimes only for the rows used in X/y
+                raw_dt = df_all_rows.loc[X.index, date_col]
+                dt_series = pd.to_datetime(
+                    raw_dt,
+                    errors="coerce",
+                    utc=True,
+                    infer_datetime_format=True,
+                )
+
+                # Require a reasonable amount of valid dates
+                valid_mask = dt_series.notna()
+                valid_count = valid_mask.sum()
+                min_required = max(100, int(0.5 * len(dt_series)))
+                if valid_count < min_required:
+                    print(f"[warn] Chronological split requested but too many missing/invalid dates "
+                          f"({valid_count} valid of {len(dt_series)}); falling back to random split.")
                 else:
-                    order_idx = dt_series.sort_values(kind="mergesort").index  # stable
-                    n_total = len(order_idx)
+                    # Use only rows with valid dates, ordered by time
+                    ordered_idx = dt_series[valid_mask].sort_values(kind="mergesort").index
+                    n_total = len(ordered_idx)
                     cut = int(0.7 * n_total)
-                    train_idx, test_idx = order_idx[:cut], order_idx[cut:]
+
+                    train_idx = ordered_idx[:cut]
+                    test_idx  = ordered_idx[cut:]
 
                     X_train, X_test = X.loc[train_idx], X.loc[test_idx]
                     y_train, y_test = y.loc[train_idx], y.loc[test_idx]
@@ -914,6 +951,7 @@ def train_models(dataset_name: str | None = None):
                     chrono_done = True
         except Exception as e:
             print(f"[warn] Chronological split failed ({e}); falling back to random split.")
+
 
     if chrono_done:
         print(f"\n⏱️  Chronological split enabled:")
@@ -998,6 +1036,10 @@ def train_models(dataset_name: str | None = None):
         return logreg, rf, hgb
 
     logreg, rf, hgb = make_pipelines(pre)
+    
+    mlflow.log_param("dataset", csv_name)
+    mlflow.log_dict(counts, "class_balance.json")
+    
 
     # CLI-controlled toggles
     do_tune = bool(int(os.getenv("DO_TUNE", "0")))  # default off; enabled via --tune
@@ -1009,40 +1051,82 @@ def train_models(dataset_name: str | None = None):
         # fall back to defaults if any are missing
         logreg = tuned_models.get("Logistic Regression", logreg)
         rf     = tuned_models.get("Random Forest", rf)
-        hgb    = tuned_models.get("HistGradientBoosting (GBT)", hgb)
+        hgb    = tuned_models.get("HistGradientBoosting_GBT", hgb)
     else:
         logreg.fit(X_train, y_train)
         rf.fit(X_train, y_train)
         hgb.fit(X_train, y_train)
 
 
-    # Evaluate function
-    def eval_model(name, model):
-        print(f"\n🔍 {name}:")
-        y_pred = model.predict(X_test)
-        acc = accuracy_score(y_test, y_pred)
-        auc = None
-        y_proba = None
-        try:
-            y_proba = model.predict_proba(X_test)[:, 1]
-            auc = roc_auc_score(y_test, y_proba)
-            print(f"AUC: {auc:.3f}")
-        except Exception:
-            pass
-        print(f"Accuracy: {acc:.3f}")
-        print(confusion_matrix(y_test, y_pred))
-        print(classification_report(y_test, y_pred, zero_division=0))
-        tuned = None
-        if y_proba is not None:
-            tuned = tune_threshold(y_test, y_proba, objective="f1")
-            print(f"🔧 Best F1 threshold: {tuned['thr']:.2f} | "
-                  f"F1 {tuned['f1']:.3f} | Acc {tuned['acc']:.3f} | "
-                  f"P {tuned['prec']:.3f} | R {tuned['rec']:.3f}")
-        return {"name": name, "model": model, "auc": auc, "acc": acc, "tuned": tuned}
+    # Evaluate function – one MLflow run per model
+    def eval_model(name, short_name, model):
+        """
+        name       = human label (e.g. 'Logistic Regression')
+        short_name = run name in MLflow (e.g. 'logreg', 'rf', 'hgb')
+        model      = fitted sklearn Pipeline
+        """
+        with mlflow.start_run(run_name=short_name, nested=True) as run:
+            run_id = run.info.run_id
 
-    res_lr  = eval_model("Logistic Regression", logreg)
-    res_rf  = eval_model("Random Forest", rf)
-    res_hgb = eval_model("HistGradientBoosting (GBT)", hgb)
+            print(f"\n🔍 {name}:")
+            y_pred = model.predict(X_test)
+            acc = accuracy_score(y_test, y_pred)
+            auc = None
+            y_proba = None
+
+            try:
+                y_proba = model.predict_proba(X_test)[:, 1]
+                auc = roc_auc_score(y_test, y_proba)
+                print(f"AUC: {auc:.3f}")
+            except Exception:
+                pass
+
+            print(f"Accuracy: {acc:.3f}")
+            print(confusion_matrix(y_test, y_pred))
+            print(classification_report(y_test, y_pred, zero_division=0))
+
+            # --- log model-level params/metrics in THIS run ---
+            mlflow.set_tag("model_name", name)
+            mlflow.log_param("dataset", csv_name)
+            mlflow.log_param("model_type", short_name)
+            mlflow.log_dict(counts, "class_balance.json")
+
+            mlflow.log_metric("accuracy", acc)
+            if auc is not None:
+                mlflow.log_metric("auc", auc)
+
+            tuned = None
+            if y_proba is not None:
+                tuned = tune_threshold(y_test, y_proba, objective="f1")
+                print(
+                    f"🔧 Best F1 threshold: {tuned['thr']:.2f} | "
+                    f"F1 {tuned['f1']:.3f} | Acc {tuned['acc']:.3f} | "
+                    f"P {tuned['prec']:.3f} | R {tuned['rec']:.3f}"
+                )
+
+                mlflow.log_metric("best_f1", tuned["f1"])
+                mlflow.log_metric("best_threshold", tuned["thr"])
+
+            # log the actual sklearn model into this run
+            mlflow.sklearn.log_model(model, artifact_path="model")
+
+        # return summary for global best-model selection
+        return {
+            "name": name,
+            "short_name": short_name,
+            "model": model,
+            "auc": auc,
+            "acc": acc,
+            "tuned": tuned,
+            "run_id": run_id,
+        }
+
+    # one run per model
+    res_lr  = eval_model("Logistic Regression",      "logreg", logreg)
+    res_rf  = eval_model("Random Forest",            "rf",     rf)
+    res_hgb = eval_model("HistGradientBoosting_GBT", "hgb",    hgb)
+
+
 
     # Stratified CV (optional)
     if not DO_CHRONO and cv_splits and cv_splits >= 2:
@@ -1070,9 +1154,17 @@ def train_models(dataset_name: str | None = None):
     results_sorted = sorted(
         results,
         key=lambda r: ((r["auc"] if r["auc"] is not None else 0.0), r["acc"]),
-        reverse=True
+        reverse=True,
     )
     best = results_sorted[0]
+
+    # log selection info on the PARENT run (main_training_run)
+    mlflow.log_param("selected_model", best["name"])
+    mlflow.log_param("selected_model_run_id", best["run_id"])
+    if best.get("tuned"):
+        mlflow.log_param("selected_threshold", best["tuned"]["thr"])
+
+    
     
     try:
         run_drift_checks(best["model"], X_train, y_train, X_test, y_test, MODEL_DIR, alert=True)
@@ -1497,8 +1589,29 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     os.environ["DO_CHRONO"] = "1" if args.chronological else "0"
-    train_models(dataset_name=args.dataset)
-    upload_artifacts_to_s3()
+    os.environ["DO_TUNE"]   = "1" if args.tune else "0"
+    os.environ["DO_PCA"]    = "1" if args.pca else "0"
+   
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns"))
+    mlflow.set_experiment(os.getenv("MLFLOW_EXPERIMENT_NAME", "alpha_signal_engine"))
+
+    with mlflow.start_run(run_name="main_training_run"):
+        train_models(dataset_name=args.dataset)
+
+        artifact_files = [
+            MODEL_DIR / "model_card.json",
+            MODEL_DIR / "feature_importances.csv",
+            MODEL_DIR / "predictions_latest.csv",
+            MODEL_DIR / "weekly_metrics.csv",
+            MODEL_DIR / "logreg_learning_curve.csv",
+            MODEL_DIR / "rf_learning_curve.csv",
+            TIER_CONFIG_OUT,
+        ]
+        for f in artifact_files:
+            if f.exists():
+                mlflow.log_artifact(str(f))
+
+        upload_artifacts_to_s3()
 
 
 

@@ -17,8 +17,7 @@ from dateutil import parser
 from gspread.exceptions import APIError
 from importlib.util import spec_from_file_location, module_from_spec
 from pathlib import Path
-from alpha_signal_engine.src.model_registry_s3 import download_latest_model_from_s3
-download_latest_model_from_s3()
+
 
 
 
@@ -50,12 +49,63 @@ except ModuleNotFoundError:
     assert spec.loader is not None
     spec.loader.exec_module(_mod)
     predict_win_prob = _mod.predict_win_prob  # type: ignore[attr-defined]
+    
+    
+    
+from pathlib import Path
+import os
+import boto3
+import joblib
+
+ML_BUCKET = os.getenv("ML_BUCKET")
+ML_MODELS_PREFIX = os.getenv("ML_MODELS_PREFIX", "models")
+
+PROJECT_ROOT = Path(__file__).resolve().parent  # /app
+ENGINE_ROOT = PROJECT_ROOT / "alpha_signal_engine"
+MODEL_DIR = ENGINE_ROOT / "data" / "results" / "models"
+
+def sync_model_from_s3():
+    if not ML_BUCKET:
+        print("[ml-sync] ML_BUCKET not set; skipping S3 download")
+        return
+
+    s3 = boto3.client("s3")
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    files = [
+        "baseline_winloss.pkl",
+        "model_features.pkl",
+        "model_card.json",
+        "weekly_metrics.csv",
+        "tier_config.json",
+    ]
+
+    for name in files:
+        key = f"{ML_MODELS_PREFIX}/{name}"
+        # tier_config.json lives at project root in training, keep same in runner:
+        if name == "tier_config.json":
+            dest = PROJECT_ROOT / name
+        else:
+            dest = MODEL_DIR / name
+
+        try:
+            print(f"[ml-sync] downloading s3://{ML_BUCKET}/{key} -> {dest}")
+            s3.download_file(ML_BUCKET, key, str(dest))
+        except Exception as e:
+            print(f"[ml-sync] WARNING: could not download {key}: {e}")
 
 
+# pull latest production model bundle from S3 into the container
+sync_model_from_s3()
+
+model_path = MODEL_DIR / "baseline_winloss.pkl"
+feature_path = MODEL_DIR / "model_features.pkl"
+model = joblib.load(model_path)
+features = joblib.load(feature_path)
 
 
 # ========= Argparse / Logging =========
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandlermodel_path
 
 # 1) Parse CLI args first
 parser = argparse.ArgumentParser()

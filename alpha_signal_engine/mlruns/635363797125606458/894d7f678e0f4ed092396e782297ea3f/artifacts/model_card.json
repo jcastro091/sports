@@ -1,0 +1,39 @@
+{
+  "model_name": "HistGradientBoosting_GBT",
+  "timestamp": "2025-11-25T15:47:44.394441+00:00",
+  "dataset": "ConfirmedBets - AllObservations.csv",
+  "dataset_hash": "e18079efb5c6e6093173249fb932b423",
+  "rows_total": 4207,
+  "class_balance": {
+    "0": 2263,
+    "1": 1944
+  },
+  "auc": 0.6270292391769713,
+  "accuracy": 0.5819477434679335,
+  "threshold": 0.42,
+  "features_used": [
+    "close_imp",
+    "minutes_to_start",
+    "spread_home",
+    "spread_away",
+    "spread_home_abs",
+    "spread_away_abs",
+    "spread_abs_min",
+    "spread_abs_max",
+    "home_fav_flag",
+    "away_fav_flag",
+    "spread_dist_3",
+    "spread_dist_7",
+    "total_line",
+    "consensus_close_imp",
+    "book_imp_range_close",
+    "book_outlier_flag",
+    "sport",
+    "market",
+    "direction_clean",
+    "time_bin",
+    "limit_trend",
+    "odds_bin"
+  ],
+  "learning_rate_hgb": 0.07
+}
