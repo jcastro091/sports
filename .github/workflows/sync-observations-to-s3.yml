@@ -25,7 +25,8 @@ jobs:
       - name: Add Google Credentials
         run: |
           mkdir -p creds
-          echo "${{ secrets.GOOGLE_CREDS_JSON }}" > creds/google-credentials.json
+          printf '%s' "${{ secrets.GOOGLE_CREDS_JSON }}" > creds/google-credentials.json
+
 
       - name: Run ingestion
         env:
