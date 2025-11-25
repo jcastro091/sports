@@ -105,7 +105,8 @@ features = joblib.load(feature_path)
 
 
 # ========= Argparse / Logging =========
-from logging.handlers import RotatingFileHandlermodel_path
+from logging.handlers import RotatingFileHandler
+
 
 # 1) Parse CLI args first
 parser = argparse.ArgumentParser()
