@@ -1,0 +1,40 @@
+name: Sync AllObservations to S3
+
+on:
+  schedule:
+    - cron: "0 * * * *"  # every hour
+  workflow_dispatch: {}   # manual run
+
+jobs:
+  sync-sheet:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install gspread google-auth pandas boto3
+
+      - name: Add Google Credentials
+        run: |
+          mkdir -p creds
+          echo "${{ secrets.GOOGLE_CREDS_JSON }}" > creds/google-credentials.json
+
+      - name: Run ingestion
+        env:
+          GOOGLE_CREDS_PATH: "creds/google-credentials.json"
+          OBS_SHEET_ID: ${{ secrets.OBS_SHEET_ID }}
+          OBS_TAB_NAME: "AllObservations"
+          S3_DATA_BUCKET: "sharpsignal-ml-data"
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: "us-east-2"
+        run: |
+          python allobservations_to_s3.py
