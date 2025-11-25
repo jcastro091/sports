@@ -1,7 +1,7 @@
 pandas
 duckdb
 pyyaml
-scikit-learn
+scikit-learn==1.7.2
 lightgbm
 matplotlib
 jinja2
