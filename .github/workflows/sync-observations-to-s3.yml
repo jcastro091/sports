@@ -25,7 +25,7 @@ jobs:
       - name: Add Google Credentials
         run: |
           mkdir -p creds
-          echo "${{ secrets.GOOGLE_CREDS_B64 }}" | base64 --decode > creds/telegrambetlogger-35856685bc29.json
+          echo "${{ secrets.GOOGLE_CREDS_B64 }}" | base64 --decode > creds/google-credentials.json
 
       - name: Run ingestion
         env:
@@ -38,3 +38,4 @@ jobs:
           AWS_DEFAULT_REGION: "us-east-2"
         run: |
           python allobservations_to_s3.py
+
