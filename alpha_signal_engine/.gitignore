@@ -10,6 +10,8 @@ venv/
 /data/results/*
 /data/raw/*
 /notebooks/.ipynb_checkpoints
+mlruns/
+
 
 # OS
 .DS_Store

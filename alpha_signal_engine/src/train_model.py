@@ -30,6 +30,9 @@ import boto3
 import mlflow
 import mlflow.sklearn
 
+from telegram import Bot
+
+
 from sklearn.model_selection import learning_curve
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -70,6 +73,105 @@ S3_LOGGER = logging.getLogger("s3_upload")
 THIS_DIR = Path(__file__).resolve().parent       # /app/alpha_signal_engine/src
 PROJECT_ROOT = THIS_DIR.parent                   # /app/alpha_signal_engine
 RESULTS_DIR = PROJECT_ROOT / "data" / "results" / "models"
+
+
+# Paths for artifacts
+MODEL_CARD_PATH = RESULTS_DIR / "model_card.json"
+WEEKLY_METRICS_PATH = RESULTS_DIR / "weekly_metrics.csv"
+
+
+def _send_telegram(msg: str) -> None:
+    """
+    Generic Telegram helper – uses TELEGRAM_BOT_TOKEN + DRIFT_ALERT_CHAT_ID
+    (or TELEGRAM_CHAT_ID as a fallback).
+    """
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("DRIFT_ALERT_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return
+
+    try:
+        bot = Bot(token=token)
+        bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML")
+    except Exception as e:
+        print(f"[tg] failed to send health summary: {e}")
+
+
+def send_health_summary():
+    """
+    Build and send a nightly 'model health' summary to Telegram based on
+    model_card.json + weekly_metrics.csv.
+    """
+    if not MODEL_CARD_PATH.exists():
+        return
+
+    with MODEL_CARD_PATH.open("r", encoding="utf-8") as f:
+        card = json.load(f)
+
+    model_version = card.get("version") or card.get("trained_at")
+    test_metrics = card.get("test_metrics", {}) or card.get("metrics", {})
+    test_auc = test_metrics.get("auc") or test_metrics.get("AUC")
+    test_f1 = test_metrics.get("f1") or test_metrics.get("F1")
+    threshold = card.get("threshold") or test_metrics.get("threshold")
+
+    # --- NEW: initialize ROI / winrate (not implemented yet) ---
+    roi_7d = None
+    winrate_7d = None
+
+    # --- latest weekly AUC / accuracy ---
+    auc_7d = None
+    acc_7d = None
+    if WEEKLY_METRICS_PATH.exists():
+        df = pd.read_csv(WEEKLY_METRICS_PATH)
+        if not df.empty:
+            sort_col = "week_start" if "week_start" in df.columns else df.columns[0]
+            last = df.sort_values(sort_col).iloc[-1]
+            auc_7d = last.get("auc") or last.get("AUC")
+            acc_7d = last.get("accuracy") or last.get("Accuracy")
+
+    status = "✅"
+    reasons = []
+    if test_auc is not None and test_auc < 0.6:
+        status = "⚠️"
+        reasons.append(f"low test AUC ({test_auc:.3f})")
+    if auc_7d is not None and auc_7d < 0.6:
+        status = "⚠️"
+        reasons.append(f"last-week AUC {auc_7d:.3f}")
+    if acc_7d is not None and acc_7d < 0.5:
+        status = "⚠️"
+        reasons.append(f"last-week accuracy {acc_7d:.3f}")
+
+    reason_str = "; ".join(reasons) if reasons else "healthy"
+
+    lines = [
+        f"{status} <b>SharpSignal model health</b>",
+    ]
+    if model_version:
+        lines.append(f"Version: <code>{model_version}</code>")
+
+    if test_auc is not None:
+        lines.append(f"Test AUC: <b>{test_auc:.3f}</b>")
+    if test_f1 is not None:
+        lines.append(f"Test F1: <b>{test_f1:.3f}</b>")
+    if threshold is not None:
+        lines.append(f"Threshold: <code>{threshold:.3f}</code>")
+
+    # Only add these if/when you actually compute them
+    if roi_7d is not None:
+        lines.append(f"7d ROI: <b>{roi_7d:.1f}%</b>")
+    if winrate_7d is not None:
+        lines.append(f"7d Win rate: <b>{winrate_7d:.1f}%</b>")
+
+    if auc_7d is not None:
+        lines.append(f"Last-week AUC: <b>{auc_7d:.3f}</b>")
+    if acc_7d is not None:
+        lines.append(f"Last-week Acc: <b>{acc_7d:.3f}</b>")
+
+    lines.append(f"Status: {reason_str}")
+
+    msg = "\n".join(lines)
+    _send_telegram(msg)
+
 
 def upload_artifacts_to_s3():
     """
@@ -124,8 +226,6 @@ def _print_header(title: str):
     
     
 # === PATCH D1: helper ===
-from sklearn.metrics import roc_auc_score
-
 def _safe_auc(y_true, y_score):
     # Works for binary targets; returns None if only one class present
     try:
@@ -321,10 +421,22 @@ def run_drift_checks(model, X_train, y_train, X_test, y_test, out_dir: Path, ale
     if week_drop is not None and week_drop <= -0.05:
         alerts.append(f"Recent weekly AUC drop: {week_drop:.3f} (≤ -0.05)")
         
+    import numpy as _np
 
-    mlflow.log_metric("drift_auc_train", auc_train if auc_train else 0)
-    mlflow.log_metric("drift_auc_test", auc_test if auc_test else 0)
-    mlflow.log_metric("drift_psi", psi if psi else 0)
+    def _clean_metric(v, default=0.0):
+        if v is None:
+            return default
+        try:
+            if _np.isnan(v):
+                return default
+        except Exception:
+            pass
+        return float(v)
+
+    mlflow.log_metric("drift_auc_train", _clean_metric(auc_train))
+    mlflow.log_metric("drift_auc_test", _clean_metric(auc_test))
+    mlflow.log_metric("drift_psi", _clean_metric(psi))
+
 
 
     # Persist a tiny health file
@@ -1079,10 +1191,15 @@ def train_models(dataset_name: str | None = None):
 
             try:
                 y_proba = model.predict_proba(X_test)[:, 1]
-                auc = roc_auc_score(y_test, y_proba)
-                print(f"AUC: {auc:.3f}")
-            except Exception:
-                pass
+                auc = _safe_auc(y_test, y_proba)
+                if auc is not None:
+                    print(f"AUC: {auc:.3f}")
+                else:
+                    print("AUC: n/a (single-class test set)")
+            except Exception as e:
+                print(f"[warn] AUC computation failed: {e}")
+                auc = None
+
 
             print(f"Accuracy: {acc:.3f}")
             print(confusion_matrix(y_test, y_pred))
@@ -1316,14 +1433,18 @@ def train_models(dataset_name: str | None = None):
     except Exception as e:
         print(f"[warn] Could not save feature importances: {e}")
 
-
     # ---- Descriptive: win-rate by odds_bin (and by odds_bin × market) ----
     try:
         odds_bin_series = X["odds_bin"].astype(str) if "odds_bin" in X.columns else pd.Series("", index=X.index)
         # Align
         y_all = y.copy()
         df_desc = pd.DataFrame({"odds_bin": odds_bin_series, "y": y_all})
-        table_bin = df_desc.groupby("odds_bin").agg(n=("y", "size"), win_rate=("y", "mean")).reset_index().sort_values("n", ascending=False)
+        table_bin = (
+            df_desc.groupby("odds_bin")
+            .agg(n=("y", "size"), win_rate=("y", "mean"))
+            .reset_index()
+            .sort_values("n", ascending=False)
+        )
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         table_bin.to_csv(MODEL_DIR / "descriptive_winrate_by_odds_bin.csv", index=False)
         print("\n📊 Win rate by odds_bin (full dataset):")
@@ -1331,48 +1452,67 @@ def train_models(dataset_name: str | None = None):
 
         # odds_bin × market (full dataset)
         if "market" in X.columns:
-            df_desc2 = pd.DataFrame({"odds_bin": odds_bin_series, "market": X["market"].astype(str), "y": y_all})
-            table_cross = (df_desc2.groupby(["odds_bin", "market"])
+            df_desc2 = pd.DataFrame(
+                {"odds_bin": odds_bin_series, "market": X["market"].astype(str), "y": y_all}
+            )
+            table_cross = (
+                df_desc2.groupby(["odds_bin", "market"])
                 .agg(n=("y", "size"), win_rate=("y", "mean"))
-                .reset_index().sort_values(["odds_bin", "n"], ascending=[True, False]))
-            table_cross.to_csv(MODEL_DIR / "descriptive_winrate_by_odds_bin_market.csv", index=False)
+                .reset_index()
+                .sort_values(["odds_bin", "n"], ascending=[True, False])
+            )
+            table_cross.to_csv(
+                MODEL_DIR / "descriptive_winrate_by_odds_bin_market.csv",
+                index=False,
+            )
 
         # ============ NEW: test-split only ============ #
         if "odds_bin" in X.columns:
             odds_bin_test = X.loc[X_test.index, "odds_bin"].astype(str)
             y_test_series = y_test.copy()
             df_desc_test = pd.DataFrame({"odds_bin": odds_bin_test, "y": y_test_series})
-            table_bin_test = (df_desc_test.groupby("odds_bin")
-                              .agg(n=("y", "size"), win_rate=("y", "mean"))
-                              .reset_index().sort_values("n", ascending=False))
-            table_bin_test.to_csv(MODEL_DIR / "descriptive_winrate_by_odds_bin_test.csv", index=False)
+            table_bin_test = (
+                df_desc_test.groupby("odds_bin")
+                .agg(n=("y", "size"), win_rate=("y", "mean"))
+                .reset_index()
+                .sort_values("n", ascending=False)
+            )
+            table_bin_test.to_csv(
+                MODEL_DIR / "descriptive_winrate_by_odds_bin_test.csv",
+                index=False,
+            )
             print("\n📊 Win rate by odds_bin (test split):")
             print(table_bin_test.to_string(index=False))
-            
-            
+
             # === AUTO-GENERATE tier_config.json FOR sports.py ===
             try:
-                # Use test-split (odds_bin × market) performance as guidance
-                # We only need odds_bin + market here; sports we take from X["sport"].
-                unique_sports = sorted(X["sport"].astype(str).unique().tolist())
+                # odds_bin × market (test split)
+                table_cross_test = None
+                if "market" in X.columns:
+                    market_test = X.loc[X_test.index, "market"].astype(str)
+                    df_desc2_test = pd.DataFrame(
+                        {"odds_bin": odds_bin_test, "market": market_test, "y": y_test_series}
+                    )
+                    table_cross_test = (
+                        df_desc2_test.groupby(["odds_bin", "market"])
+                        .agg(n=("y", "size"), win_rate=("y", "mean"))
+                        .reset_index()
+                        .sort_values(["odds_bin", "n"], ascending=[True, False])
+                    )
+                    table_cross_test.to_csv(
+                        MODEL_DIR / "descriptive_winrate_by_odds_bin_market_test.csv",
+                        index=False,
+                    )
 
-                # Fallback if table_cross_test wasn't created
-                if "table_cross_test" in locals():
-                    df_tiers_src = table_cross_test.copy()
-                else:
-                    df_tiers_src = None
+                unique_sports = sorted(X["sport"].astype(str).unique().tolist())
+                df_tiers_src = table_cross_test.copy() if table_cross_test is not None else None
 
                 tier_rules = []
-
                 if df_tiers_src is not None and not df_tiers_src.empty:
-                    # Heuristics:
-                    # - Require minimum sample size so we don't overfit tiny buckets
                     MIN_N_A = 40
                     MIN_N_B = 30
                     MIN_N_C = 20
 
-                    # Define bands on *win_rate* to decide A/B/C
-                    # (you can tweak these later)
                     def bucket_for_row(n, win):
                         if n >= MIN_N_A and win >= 0.60:
                             return "A"
@@ -1383,16 +1523,15 @@ def train_models(dataset_name: str | None = None):
                         return None
 
                     for _, row in df_tiers_src.iterrows():
-                        odds_bin = str(row["odds_bin"])
-                        market   = str(row["market"])
-                        n        = int(row["n"])
+                        odds_bin_val = str(row["odds_bin"])
+                        market_val = str(row["market"])
+                        n = int(row["n"])
                         win_rate = float(row["win_rate"])
 
                         tier_code = bucket_for_row(n, win_rate)
                         if tier_code is None:
                             continue
 
-                        # Map tier_code to label + model-prob thresholds used at runtime
                         if tier_code == "A":
                             min_proba, max_proba = 0.60, 1.00
                             label = "Tier A"
@@ -1403,17 +1542,18 @@ def train_models(dataset_name: str | None = None):
                             min_proba, max_proba = 0.50, 1.00
                             label = "Tier C"
 
-                        tier_rules.append({
-                            "code": tier_code,
-                            "label": label,
-                            "sports": unique_sports,      # allow all sports for now
-                            "markets": [market],          # specific Market, e.g. "H2H Away"
-                            "odds_bin": [odds_bin],       # e.g. "Fav", "Dog"
-                            "min_proba": float(min_proba),
-                            "max_proba": float(max_proba),
-                        })
+                        tier_rules.append(
+                            {
+                                "code": tier_code,
+                                "label": label,
+                                "sports": unique_sports,
+                                "markets": [market_val],
+                                "odds_bin": [odds_bin_val],
+                                "min_proba": float(min_proba),
+                                "max_proba": float(max_proba),
+                            }
+                        )
 
-                # Fallback: if nothing qualified, keep a safe default
                 if not tier_rules:
                     tier_rules = [
                         {
@@ -1429,29 +1569,18 @@ def train_models(dataset_name: str | None = None):
 
                 tier_cfg = {
                     "tiers": tier_rules,
-                    "default": {"code": "", "label": "Pass"}
+                    "default": {"code": "", "label": "Pass"},
                 }
 
                 TIER_CONFIG_OUT.parent.mkdir(parents=True, exist_ok=True)
                 TIER_CONFIG_OUT.write_text(
                     json.dumps(tier_cfg, indent=2),
-                    encoding="utf-8"
+                    encoding="utf-8",
                 )
                 print(f"🧩 Saved tier_config.json → {TIER_CONFIG_OUT}")
             except Exception as e:
                 print(f"[warn] Could not auto-generate tier_config.json: {e}")
-                    
-            
 
-            # odds_bin × market (test split)
-            if "market" in X.columns:
-                market_test = X.loc[X_test.index, "market"].astype(str)
-                df_desc2_test = pd.DataFrame({"odds_bin": odds_bin_test, "market": market_test, "y": y_test_series})
-                table_cross_test = (df_desc2_test.groupby(["odds_bin", "market"])
-                                    .agg(n=("y", "size"), win_rate=("y", "mean"))
-                                    .reset_index().sort_values(["odds_bin", "n"], ascending=[True, False]))
-                table_cross_test.to_csv(MODEL_DIR / "descriptive_winrate_by_odds_bin_market_test.csv", index=False)
-        # ============================================== #
     except Exception as e:
         print(f"[warn] Descriptive odds_bin tables skipped: {e}")
 
@@ -1544,7 +1673,8 @@ def log_to_mlflow(args, metrics, model_paths):
     mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
     # Give each run a useful name, e.g. by date or sport filters if you have them
-    run_name = f"train_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    run_name = f"train_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+
 
     with mlflow.start_run(run_name=run_name):
         # ---- Params (hyperparameters / config) ----
@@ -1661,6 +1791,12 @@ if __name__ == "__main__":
 
     # 🔥 NEW: always push artifacts to S3 if env vars are set
     upload_artifacts_to_s3()
+    
+    
+    try:
+        send_health_summary()
+    except Exception as e:
+        print(f"[health-summary] failed: {e}")
 
 
 
