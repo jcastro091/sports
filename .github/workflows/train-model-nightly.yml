@@ -30,6 +30,13 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
+          
+          
+      - name: Who am I?
+        run: |
+          aws sts get-caller-identity
+          aws s3 ls s3://sharpsignal-ml-data/raw/all_observations/ --recursive | head
+
 
       - name: Download latest all_observations CSV from S3
         env:
