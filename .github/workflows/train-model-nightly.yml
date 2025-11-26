@@ -68,13 +68,18 @@ jobs:
 
           aws s3 cp "s3://$ML_DATA_BUCKET/$LATEST_KEY" \
             "alpha_signal_engine/data/ConfirmedBets - AllObservations.csv"
-
+            
+            
+      - name: Reset MLflow local store
+        working-directory: alpha_signal_engine
+        run: |
+          rm -rf mlruns
 
       - name: Run train_model.py (chronological split + MLflow + S3 upload)
         working-directory: alpha_signal_engine
         env:
           MLFLOW_TRACKING_URI: "file:./mlruns"
-          MLFLOW_EXPERIMENT_NAME: "sharpsignal-winloss"
+          MLFLOW_EXPERIMENT_NAME: "sharpsignal-winloss-ci"   # <- new name
           S3_MODEL_BUCKET: "sharpsignal-ml-data"
           S3_MODELS_PREFIX: "models/prod"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
