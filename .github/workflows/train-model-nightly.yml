@@ -1,0 +1,73 @@
+name: Nightly Train Win/Loss Model from S3
+
+on:
+  schedule:
+    # 05:30 UTC = 00:30 AM ET, tweak as needed
+    - cron: "30 5 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  train-model:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      - name: Download latest all_observations CSV from S3
+        env:
+          ML_DATA_BUCKET: "sharpsignal-ml-data"
+        run: |
+          mkdir -p data
+
+          # Find latest all_observations_YYYYMMDD.csv key
+          LATEST_KEY=$(aws s3 ls s3://$ML_DATA_BUCKET/raw/all_observations/ --recursive \
+            | sort \
+            | awk '/all_observations_.*\.csv$/ {print $4}' \
+            | tail -n 1)
+
+          echo "Latest observations key: $LATEST_KEY"
+
+          if [ -z "$LATEST_KEY" ]; then
+            echo "No all_observations_*.csv found in S3; failing."
+            exit 1
+          fi
+
+          aws s3 cp "s3://$ML_DATA_BUCKET/$LATEST_KEY" \
+            "data/ConfirmedBets - AllObservations.csv"
+
+      - name: Run train_model.py (chronological split + MLflow + S3 upload)
+        env:
+          # MLflow local file store (you can point to a remote server later)
+          MLFLOW_TRACKING_URI: "file:./mlruns"
+          MLFLOW_EXPERIMENT_NAME: "sharpsignal-winloss"
+
+          # S3 upload targets used in upload_artifacts_to_s3()
+          S3_MODEL_BUCKET: "sharpsignal-ml-data"
+          S3_MODELS_PREFIX: "models/prod"
+
+          # Telegram drift alerts (optional but you already have hooks)
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DRIFT_ALERT_CHAT_ID: ${{ secrets.DRIFT_ALERT_CHAT_ID }}
+
+        run: |
+          python src/train_model.py \
+            --dataset "ConfirmedBets - AllObservations.csv" \
+            --chronological

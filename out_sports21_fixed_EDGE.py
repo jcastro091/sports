@@ -57,8 +57,9 @@ import os
 import boto3
 import joblib
 
-ML_BUCKET = os.getenv("ML_BUCKET")
-ML_MODELS_PREFIX = os.getenv("ML_MODELS_PREFIX", "models")
+ML_BUCKET = os.getenv("ML_BUCKET", "sharpsignal-ml-data")
+ML_MODELS_PREFIX = os.getenv("ML_MODELS_PREFIX", "models/prod")
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent  # /app
 ENGINE_ROOT = PROJECT_ROOT / "alpha_signal_engine"
@@ -98,10 +99,15 @@ def sync_model_from_s3():
 # pull latest production model bundle from S3 into the container
 sync_model_from_s3()
 
-model_path = MODEL_DIR / "baseline_winloss.pkl"
-feature_path = MODEL_DIR / "model_features.pkl"
-model = joblib.load(model_path)
-features = joblib.load(feature_path)
+try:
+    model_path = MODEL_DIR / "baseline_winloss.pkl"
+    feature_path = MODEL_DIR / "model_features.pkl"
+    model = joblib.load(model_path)
+    features = joblib.load(feature_path)
+    logging.info("✅ Loaded model + features from %s", MODEL_DIR)
+except Exception as e:
+    logging.error("❌ Failed to load model artifacts from %s: %s", MODEL_DIR, e)
+    raise
 
 
 # ========= Argparse / Logging =========

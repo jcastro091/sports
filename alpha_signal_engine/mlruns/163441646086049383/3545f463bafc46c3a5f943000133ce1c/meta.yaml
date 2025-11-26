@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/Jcast/OneDrive/Documents/sports-repo/alpha_signal_engine/mlruns/163441646086049383/3545f463bafc46c3a5f943000133ce1c/artifacts
+end_time: 1764156417704
+entry_point_name: ''
+experiment_id: '163441646086049383'
+lifecycle_stage: active
+run_id: 3545f463bafc46c3a5f943000133ce1c
+run_name: hgb
+run_uuid: 3545f463bafc46c3a5f943000133ce1c
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1764156414104
+status: 3
+tags: []
+user_id: Jcast

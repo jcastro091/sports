@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/Jcast/OneDrive/Documents/sports-repo/alpha_signal_engine/mlruns/163441646086049383/5e9d8cccd3cd466498402f7fc656d691/artifacts
+end_time: 1764131070544
+entry_point_name: ''
+experiment_id: '163441646086049383'
+lifecycle_stage: active
+run_id: 5e9d8cccd3cd466498402f7fc656d691
+run_name: logreg
+run_uuid: 5e9d8cccd3cd466498402f7fc656d691
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1764131065198
+status: 3
+tags: []
+user_id: Jcast

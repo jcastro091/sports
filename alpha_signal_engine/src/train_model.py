@@ -57,6 +57,9 @@ MODEL_PKL = MODEL_DIR / "baseline_winloss.pkl"
 FEATS_PKL = MODEL_DIR / "model_features.pkl"
 TIER_CONFIG_OUT = ENGINE_ROOT / "tier_config.json"
 
+# --- MLflow setup (configurable via env) ---
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "sharpsignal-winloss")
 
 
 
@@ -1531,6 +1534,45 @@ def train_models(dataset_name: str | None = None):
         
         
         
+def log_to_mlflow(args, metrics, model_paths):
+    """
+    args: argparse.Namespace (your CLI args)
+    metrics: dict of metric_name -> value
+    model_paths: dict of logical_name -> file_path for artifacts
+    """
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+
+    # Give each run a useful name, e.g. by date or sport filters if you have them
+    run_name = f"train_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+
+    with mlflow.start_run(run_name=run_name):
+        # ---- Params (hyperparameters / config) ----
+        # Adjust to match your argparse options
+        mlflow.log_param("scheduler", getattr(args, "scheduler", None))
+        mlflow.log_param("chronological", getattr(args, "chronological", False))
+        mlflow.log_param("min_events", getattr(args, "min_events", None))
+        mlflow.log_param("seed", getattr(args, "seed", None))
+        mlflow.log_param("dataset", getattr(args, "dataset", None))
+        mlflow.log_param("model_type", getattr(args, "model_type", "HistGradientBoosting"))
+
+        # ---- Metrics (AUC, F1, ROI, etc.) ----
+        for k, v in metrics.items():
+            if v is None:
+                continue
+            try:
+                mlflow.log_metric(k, float(v))
+            except Exception:
+                # some metrics might be non-numeric; just skip those
+                pass
+
+        # ---- Artifacts (model, model_card, metrics CSVs, etc.) ----
+        for name, path in model_paths.items():
+            if path and os.path.isfile(path):
+                try:
+                    mlflow.log_artifact(path, artifact_path=name)
+                except Exception:
+                    pass
 
         
         
@@ -1584,20 +1626,24 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", help="CSV filename in data/ (default: ConfirmedBets - AllObservations.csv)")
     parser.add_argument("--tune", action="store_true", help="Enable hyperparameter tuning (RandomizedSearchCV)")
     parser.add_argument("--pca",  action="store_true", help="Export a 2D PCA projection CSV for the test split")
-    # NEW: chronological split flag
-    parser.add_argument("--chronological", action="store_true", help="Use time-aware train/test split (train past, test future)")
+    parser.add_argument("--chronological", action="store_true",
+                        help="Use time-aware train/test split (train past, test future)")
     args = parser.parse_args()
-    
+
+    # Wire CLI flags into envs used inside train_models()
     os.environ["DO_CHRONO"] = "1" if args.chronological else "0"
     os.environ["DO_TUNE"]   = "1" if args.tune else "0"
     os.environ["DO_PCA"]    = "1" if args.pca else "0"
-   
+
+    # MLflow root config
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns"))
     mlflow.set_experiment(os.getenv("MLFLOW_EXPERIMENT_NAME", "alpha_signal_engine"))
 
+    # One parent run, child runs are created inside train_models()
     with mlflow.start_run(run_name="main_training_run"):
         train_models(dataset_name=args.dataset)
 
+        # Log key artifacts on the parent run for convenience
         artifact_files = [
             MODEL_DIR / "model_card.json",
             MODEL_DIR / "feature_importances.csv",
@@ -1611,7 +1657,11 @@ if __name__ == "__main__":
             if f.exists():
                 mlflow.log_artifact(str(f))
 
-        upload_artifacts_to_s3()
+    print("Training complete.")
+
+    # 🔥 NEW: always push artifacts to S3 if env vars are set
+    upload_artifacts_to_s3()
+
 
 
 
