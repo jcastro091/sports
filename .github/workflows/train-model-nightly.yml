@@ -40,14 +40,12 @@ jobs:
           aws s3 ls s3://sharpsignal-ml-data/raw/all_observations/ --recursive | head
 
 
-
       - name: Download latest all_observations CSV from S3
         env:
-          ML_DATA_BUCKET: "sharpsignal-ml-data"
+          ML_DATA_BUCKET: sharpsignal-ml-data
         run: |
-          mkdir -p data
+          mkdir -p alpha_signal_engine/data
 
-          # Find latest all_observations_YYYYMMDD.csv key
           LATEST_KEY=$(aws s3 ls s3://$ML_DATA_BUCKET/raw/all_observations/ --recursive \
             | sort \
             | awk '/all_observations_.*\.csv$/ {print $4}' \
@@ -61,22 +59,18 @@ jobs:
           fi
 
           aws s3 cp "s3://$ML_DATA_BUCKET/$LATEST_KEY" \
-            "data/ConfirmedBets - AllObservations.csv"
+            "alpha_signal_engine/data/ConfirmedBets - AllObservations.csv"
+
 
       - name: Run train_model.py (chronological split + MLflow + S3 upload)
+        working-directory: alpha_signal_engine
         env:
-          # MLflow local file store (you can point to a remote server later)
           MLFLOW_TRACKING_URI: "file:./mlruns"
           MLFLOW_EXPERIMENT_NAME: "sharpsignal-winloss"
-
-          # S3 upload targets used in upload_artifacts_to_s3()
           S3_MODEL_BUCKET: "sharpsignal-ml-data"
           S3_MODELS_PREFIX: "models/prod"
-
-          # Telegram drift alerts (optional but you already have hooks)
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           DRIFT_ALERT_CHAT_ID: ${{ secrets.DRIFT_ALERT_CHAT_ID }}
-
         run: |
           python src/train_model.py \
             --dataset "ConfirmedBets - AllObservations.csv" \
