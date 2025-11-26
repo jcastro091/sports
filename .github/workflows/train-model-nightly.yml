@@ -32,10 +32,13 @@ jobs:
           aws-region: us-east-2
           
           
-      - name: Who am I?
+      - name: Debug AWS identity and S3 access
         run: |
+          echo "Caller identity:"
           aws sts get-caller-identity
+          echo "Listing a few observation files:"
           aws s3 ls s3://sharpsignal-ml-data/raw/all_observations/ --recursive | head
+
 
 
       - name: Download latest all_observations CSV from S3
