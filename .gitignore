@@ -37,6 +37,8 @@ Thumbs.db
 # secrets
 .env
 creds/*.json
+creds/
+*service_account*.json
 
 
 
