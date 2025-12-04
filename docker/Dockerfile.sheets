@@ -1,0 +1,34 @@
+# Dockerfile.sheets
+FROM python:3.11-slim
+
+# Install system deps (if you need them – gspread/oauth2client are pure Python)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # default location inside container where creds.json will live
+    CREDS=/app/creds/telegrambetlogger.json
+
+WORKDIR /app
+
+# Copy dependencies and install
+COPY requirements.txt ./
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# Copy app code
+COPY . .
+
+# Make sure creds dir exists
+RUN mkdir -p /app/creds
+
+# ⬇️ NEW: copy Google service-account key into the image
+COPY creds/telegrambetlogger-35856685bc29.json /app/creds/telegrambetlogger-35856685bc29.json
+
+# ⬇️ NEW: point sheets.py at it (matches your CREDS_FILE default)
+ENV GOOGLE_CREDS_FILE=/app/creds/telegrambetlogger-35856685bc29.json
+
+# Default command
+CMD ["python", "sheets.py"]

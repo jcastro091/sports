@@ -30,7 +30,13 @@ import boto3
 import mlflow
 import mlflow.sklearn
 
-from telegram import Bot
+try:
+    from telegram import Bot
+    from telegram.error import TelegramError
+except ImportError:
+    Bot = None
+    TelegramError = Exception
+
 
 
 from sklearn.model_selection import learning_curve
@@ -78,6 +84,16 @@ RESULTS_DIR = PROJECT_ROOT / "data" / "results" / "models"
 # Paths for artifacts
 MODEL_CARD_PATH = RESULTS_DIR / "model_card.json"
 WEEKLY_METRICS_PATH = RESULTS_DIR / "weekly_metrics.csv"
+
+def notify_telegram(message: str):
+    if Bot is None:
+        # Running in an environment without Telegram lib (e.g., SageMaker)
+        print(f"[notify_telegram] Telegram not available here. Message would be:\n{message}")
+        return
+
+    bot = Bot(token=TELEGRAM_TOKEN)
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+
 
 
 def _send_telegram(msg: str) -> None:

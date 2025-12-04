@@ -1,12 +1,13 @@
 pandas
 duckdb
 pyyaml
-scikit-learn==1.7.2
-lightgbm
+lightgbm==3.3.5
 matplotlib
 jinja2
 numpy
 scipy
 joblib
 requests
-mlflow
+# python-telegram-bot==13.15   ← DELETE or comment this
+mlflow==2.17.2
+sagemaker-mlflow==0.1.0

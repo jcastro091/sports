@@ -21,19 +21,21 @@ API_KEY = "7e79a3f0859a50153761270b1d0e867f"
 # Valid Odds API keys we support directly
 SPORTS = [
     "baseball_mlb",
-    "soccer_usa_mls",
+    "basketball_nba",
     "basketball_wnba",
+    "basketball_ncaab",
+    "icehockey_nhl",
     "americanfootball_nfl",
     "americanfootball_ncaaf",
     "boxing_boxing",
     "mma_mixed_martial_arts",
-    "soccer_italy_serie_a",
-    "soccer_germany_bundesliga",
-    "icehockey_nhl",
-    "basketball_nba",
-    "soccer_france_ligue_one",
     "soccer_epl",
+    "soccer_france_ligue_one",
+    "soccer_germany_bundesliga",
+    "soccer_italy_serie_a",
+    "soccer_usa_mls",
 ]
+
 
 # Map human sheet labels (Sport, League) → Odds API keys
 SPORT_KEY_MAP = {
