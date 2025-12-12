@@ -1,0 +1,1 @@
+{"model_name": "Random Forest", "auc": 0.7721781244370025, "accuracy": 0.6879535558780842, "threshold": 0.49, "rows_total": 4593, "dataset": "ConfirmedBets - AllObservations.csv", "timestamp": "2025-12-09T02:04:24.746153+00:00"}

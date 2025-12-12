@@ -38,3 +38,7 @@ pregame_closes.json
 # OS/editor junk
 .DS_Store
 Thumbs.db
+
+alpha_signal_engine/mlruns_local/
+
+mlruns_local/

@@ -23,4 +23,5 @@ ENV ALPHA_ENGINE_ROOT=/app/alpha_signal_engine
 # Default working dir for training
 WORKDIR /app/alpha_signal_engine
 
-ENTRYPOINT ["python", "-m", "src.train_model"]
+# 🔹 This is the key change: call train_sagemaker.py, not src.train_model
+ENTRYPOINT ["python", "train_sagemaker.py"]

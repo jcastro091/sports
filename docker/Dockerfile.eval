@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy the repo (build context is .. so this copies sports-repo/)
+COPY . /app
+
+# Install deps (aligned with your venv)
+RUN pip install --no-cache-dir \
+    numpy==1.26.4 \
+    pandas==2.2.2 \
+    scikit-learn==1.5.1 \
+    pyarrow==15.0.2 \
+    boto3 \
+    requests \
+    mlflow==2.13.2 \
+    sagemaker-mlflow==0.1.0
+
+# Default command - ECS will override args/date
+CMD ["python", "evaluation.py"]

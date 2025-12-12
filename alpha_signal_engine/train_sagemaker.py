@@ -7,15 +7,23 @@ from pathlib import Path
 from typing import Optional
 
 import mlflow
+import pandas as pd
+import boto3
 import train_model as tm  # this is fine if train_model.py is in the same source_dir
+from src.thresholds_tuner import tune_and_save_thresholds
+
 
 # ---------------------------------------------------------------------
 # MLflow config: use your SageMaker MLflow tracking server directly
+#   - In AWS: we use the ARN default below
+#   - Locally: you can override via the MLFLOW_TRACKING_URI env var
 # ---------------------------------------------------------------------
-MLFLOW_TRACKING_URI = (
-    "arn:aws:sagemaker:us-east-2:159903201403:mlflow-tracking-server/sharpsignal-mlflow"
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "arn:aws:sagemaker:us-east-2:159903201403:mlflow-tracking-server/sharpsignal-mlflow",
 )
 MLFLOW_EXPERIMENT_NAME = "sharpsignal-sagemaker"
+
 
 
 def parse_args():
@@ -69,7 +77,7 @@ def parse_args():
 def find_training_csv(train_dir: str) -> str:
     """
     Find the training CSV under the SageMaker `train` channel directory.
-    Typically this is /opt/ml/input/data/train/....
+    Typically this is /opt/ml/input/data/train/.....
 
     We prefer your daily all_observations_*.csv file.
     """
@@ -89,6 +97,55 @@ def find_training_csv(train_dir: str) -> str:
     csv_path = files_to_consider[-1]  # "latest" by name
     print(f"📄 Using training CSV: {csv_path}")
     return csv_path
+
+
+def materialize_train_dir(sm_channel_train: Optional[str]) -> str:
+    """
+    For SageMaker: use sm_channel_train / SM_CHANNEL_TRAIN.
+    For ECS: if no train dir is given, download latest CSV from S3 into /app/data/train.
+    """
+    # 1) If CLI arg is provided, use it (SageMaker-style)
+    if sm_channel_train:
+        return sm_channel_train
+
+    # 2) If SageMaker env var exists, use that
+    sm_env = os.getenv("SM_CHANNEL_TRAIN")
+    if sm_env:
+        return sm_env
+
+    # 3) ECS mode: pull from S3 using TRAIN_S3_PREFIX
+    s3_prefix = os.getenv("TRAIN_S3_PREFIX")
+    if not s3_prefix:
+        raise RuntimeError(
+            "No training directory or S3 prefix configured. "
+            "Set either --sm_channel_train, SM_CHANNEL_TRAIN, or TRAIN_S3_PREFIX env var."
+        )
+
+    # Expect something like: s3://sharpsignal-ml-data/raw/ConfirmedBets/AllBets/
+    if not s3_prefix.startswith("s3://"):
+        raise RuntimeError(f"TRAIN_S3_PREFIX must start with s3://, got: {s3_prefix}")
+
+    _, rest = s3_prefix.split("s3://", 1)
+    bucket, _, key_prefix = rest.partition("/")
+
+    s3 = boto3.client("s3", region_name="us-east-2")
+    train_dir = Path("/app/data/train")
+    train_dir.mkdir(parents=True, exist_ok=True)
+
+    # List objects under prefix and pick the latest CSV
+    resp = s3.list_objects_v2(Bucket=bucket, Prefix=key_prefix)
+    contents = resp.get("Contents", [])
+    csv_objects = [o for o in contents if o["Key"].lower().endswith(".csv")]
+    if not csv_objects:
+        raise RuntimeError(f"No CSV files found under TRAIN_S3_PREFIX={s3_prefix}")
+
+    latest_obj = max(csv_objects, key=lambda o: o["LastModified"])
+    local_path = train_dir / Path(latest_obj["Key"]).name
+
+    s3.download_file(bucket, latest_obj["Key"], str(local_path))
+    print(f"📥 Downloaded training CSV from s3://{bucket}/{latest_obj['Key']} -> {local_path}")
+
+    return str(train_dir)
 
 
 def copy_csv_into_engine(csv_src: str, dataset_name: Optional[str]) -> str:
@@ -142,6 +199,13 @@ def copy_artifacts_to_sagemaker_dirs(sm_model_dir: str, sm_output_dir: str):
             print(f"💾 Copying tier config → {dst_tier}")
             shutil.copy2(tm.TIER_CONFIG_OUT, dst_tier)
 
+        # NEW: also copy thresholds.json into SM_MODEL_DIR
+        thresholds_path = model_dir / "thresholds.json"
+        if thresholds_path.exists():
+            dst_thresh = sm_model_dir_path / "thresholds.json"
+            print(f"💾 Copying thresholds → {dst_thresh}")
+            shutil.copy2(thresholds_path, dst_thresh)
+
     # === SM_OUTPUT_DATA_DIR: diagnostics, reports, metrics.json ===
     if sm_output_dir:
         sm_output_dir_path = Path(sm_output_dir)
@@ -155,6 +219,8 @@ def copy_artifacts_to_sagemaker_dirs(sm_model_dir: str, sm_output_dir: str):
             model_dir / "logreg_learning_curve.csv",
             model_dir / "rf_learning_curve.csv",
             tm.TIER_CONFIG_OUT,
+            model_dir / "thresholds.json",          # NEW
+            model_dir / "thresholds_summary.csv",   # NEW
         ]
         for src in candidates:
             if src.exists():
@@ -203,8 +269,11 @@ def main():
     os.environ["MLFLOW_TRACKING_URI"] = MLFLOW_TRACKING_URI
     os.environ["MLFLOW_EXPERIMENT_NAME"] = exp_name
 
+    # 🔹 NEW: materialize a training directory (SageMaker or ECS)
+    train_dir = materialize_train_dir(args.sm_channel_train)
+
     # 1) Locate training CSV in SageMaker input channel
-    csv_path = find_training_csv(args.sm_channel_train)
+    csv_path = find_training_csv(train_dir)
 
     # 2) Copy CSV into alpha_signal_engine/data so train_model.py can use it
     dataset_name = copy_csv_into_engine(csv_path, args.dataset_name)
@@ -222,6 +291,36 @@ def main():
     with mlflow.start_run(run_name=run_name):
         tm.train_models(dataset_name=dataset_name)
 
+        # --- NEW: auto-tune A/B/C thresholds from predictions_latest.csv ---
+        preds_csv = tm.MODEL_DIR / "predictions_latest.csv"
+        if preds_csv.exists():
+            print(f"📊 Loading predictions from {preds_csv} for threshold tuning...")
+            df = pd.read_csv(preds_csv)
+
+            thresholds_path = tm.MODEL_DIR / "thresholds.json"
+            thresholds, summary = tune_and_save_thresholds(
+                df,
+                output_path=thresholds_path,
+                proba_col="ModelProba",      # adjust if your column name differs
+                result_col="Result",
+                odds_col="decimal_odds",
+                stake_col="Stake",
+            )
+            print("✅ Auto-tuned thresholds:", thresholds)
+
+            # Log artifacts + params to MLflow
+            mlflow.log_artifact(str(thresholds_path), artifact_path="models")
+
+            summary_path = tm.MODEL_DIR / "thresholds_summary.csv"
+            summary.to_csv(summary_path, index=False)
+            mlflow.log_artifact(str(summary_path), artifact_path="analysis")
+
+            mlflow.log_param("tier_A_proba", thresholds["A"]["proba"])
+            mlflow.log_param("tier_B_proba", thresholds["B"]["proba"])
+            mlflow.log_param("tier_C_proba", thresholds["C"]["proba"])
+        else:
+            print(f"[warn] {preds_csv} not found; skipping threshold tuning.")
+
         # Log key artifacts on the parent run for convenience
         artifact_files = [
             tm.MODEL_DIR / "model_card.json",
@@ -231,6 +330,8 @@ def main():
             tm.MODEL_DIR / "logreg_learning_curve.csv",
             tm.MODEL_DIR / "rf_learning_curve.csv",
             tm.TIER_CONFIG_OUT,
+            tm.MODEL_DIR / "thresholds.json",          # NEW
+            tm.MODEL_DIR / "thresholds_summary.csv",   # NEW
         ]
         for f in artifact_files:
             if f.exists():
@@ -253,5 +354,30 @@ def main():
         print(f"[warn] send_health_summary failed: {e}")
 
 
+def restart_sports_runner():
+    # You can also move these to env vars if you prefer
+    cluster_name = "sharpsignal-sports-cluster"      # e.g. "SharpsSignal-Cluster"
+    service_name = "sports-runner"
+
+    ecs = boto3.client("ecs", region_name="us-east-2")
+    ecs.update_service(
+        cluster=cluster_name,
+        service=service_name,
+        forceNewDeployment=True,
+    )
+    print("🔁 Triggered ECS rolling restart for sports-runner")
+
+
 if __name__ == "__main__":
     main()
+
+    # Best-effort restart; training should still be considered successful
+    # even if this part fails.
+    try:
+        restart_sports_runner()
+    except Exception as e:
+        print(f"[warn] Could not restart sports-runner: {e}")
+
+
+
+

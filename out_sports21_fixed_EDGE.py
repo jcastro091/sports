@@ -51,63 +51,6 @@ except ModuleNotFoundError:
     predict_win_prob = _mod.predict_win_prob  # type: ignore[attr-defined]
     
     
-    
-from pathlib import Path
-import os
-import boto3
-import joblib
-
-ML_BUCKET = os.getenv("ML_BUCKET", "sharpsignal-ml-data")
-ML_MODELS_PREFIX = os.getenv("ML_MODELS_PREFIX", "models/prod")
-
-
-PROJECT_ROOT = Path(__file__).resolve().parent  # /app
-ENGINE_ROOT = PROJECT_ROOT / "alpha_signal_engine"
-MODEL_DIR = ENGINE_ROOT / "data" / "results" / "models"
-
-def sync_model_from_s3():
-    if not ML_BUCKET:
-        print("[ml-sync] ML_BUCKET not set; skipping S3 download")
-        return
-
-    s3 = boto3.client("s3")
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-
-    files = [
-        "baseline_winloss.pkl",
-        "model_features.pkl",
-        "model_card.json",
-        "weekly_metrics.csv",
-        "tier_config.json",
-    ]
-
-    for name in files:
-        key = f"{ML_MODELS_PREFIX}/{name}"
-        # tier_config.json lives at project root in training, keep same in runner:
-        if name == "tier_config.json":
-            dest = PROJECT_ROOT / name
-        else:
-            dest = MODEL_DIR / name
-
-        try:
-            print(f"[ml-sync] downloading s3://{ML_BUCKET}/{key} -> {dest}")
-            s3.download_file(ML_BUCKET, key, str(dest))
-        except Exception as e:
-            print(f"[ml-sync] WARNING: could not download {key}: {e}")
-
-
-# pull latest production model bundle from S3 into the container
-sync_model_from_s3()
-
-try:
-    model_path = MODEL_DIR / "baseline_winloss.pkl"
-    feature_path = MODEL_DIR / "model_features.pkl"
-    model = joblib.load(model_path)
-    features = joblib.load(feature_path)
-    logging.info("✅ Loaded model + features from %s", MODEL_DIR)
-except Exception as e:
-    logging.error("❌ Failed to load model artifacts from %s: %s", MODEL_DIR, e)
-    raise
 
 
 # ========= Argparse / Logging =========
@@ -145,6 +88,43 @@ def _safe_log_path():
 
 log_dir = _safe_log_path()
 log_file = log_dir / "sports.log"
+
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent  # adjust if you already have ROOT defined
+ENGINE_DIR = BASE_DIR / "alpha_signal_engine"
+TMP_DIR = ENGINE_DIR / "data" / "tmp"
+
+SM_OUTPUT_DIR = TMP_DIR / "sm_output_dir"   # where your screenshot is
+SM_MODEL_DIR  = TMP_DIR / "sm_model_dir"    # where ml-sync drops pkl files (we’ll use this below)
+
+THRESHOLDS_PATH   = SM_OUTPUT_DIR / "thresholds.json"
+TIER_CONFIG_PATH  = SM_OUTPUT_DIR / "tier_config.json"
+WEEKLY_METRICS    = SM_OUTPUT_DIR / "weekly_metrics.csv"
+MODEL_CARD_PATH   = SM_OUTPUT_DIR / "model_card.json"
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+LOG_DIR = PROJECT_ROOT / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+SPORTS_LOG_PATH = LOG_DIR / "sports.log"
+
+# Engine root = alpha_signal_engine subfolder
+ENGINE_ROOT = PROJECT_ROOT / "alpha_signal_engine"
+
+# Shared model directory (where train_sagemaker.py wrote artifacts)
+MODEL_DIR = ENGINE_ROOT / "data" / "tmp" / "sm_model_dir"
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+
+
+THRESHOLDS_PATH = MODEL_DIR / "thresholds.json"
+MODEL_PATH = MODEL_DIR / "model.pkl"
+FEATURES_PATH = MODEL_DIR / "model_features.pkl"
+TIER_CONFIG_PATH = MODEL_DIR / "tier_config.json"
+
+
 
 handlers = [
     logging.StreamHandler(sys.stdout),
@@ -285,11 +265,28 @@ def send_enterprise(text: str):
 
 # ========= Sheets =========
 def _authorize_sheets():
-    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDS_FILE, scope)
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    creds_path = Path(GOOGLE_CREDS_FILE)
+    json_blob = os.getenv("GOOGLE_CREDS_JSON", "").strip()
+
+    # If the file doesn't exist but GOOGLE_CREDS_JSON is set, write it out
+    if not creds_path.exists():
+        if not json_blob:
+            raise FileNotFoundError(
+                f"Google creds file {creds_path} not found "
+                f"and GOOGLE_CREDS_JSON is empty."
+            )
+        creds_path.parent.mkdir(parents=True, exist_ok=True)
+        creds_path.write_text(json_blob, encoding="utf-8")
+        logging.info("📄 Wrote Google creds to %s from GOOGLE_CREDS_JSON", creds_path)
+
+    creds = ServiceAccountCredentials.from_json_keyfile_name(str(creds_path), scope)
     gc = gspread.authorize(creds)
     return gc
-
 try:
     gc = _authorize_sheets()
     sheet_bets = gc.open(SPREADSHEET_NAME).worksheet(TAB_BETS)
@@ -303,8 +300,6 @@ except Exception as e:
     obs_sheet = None
 
 # ========= Small utils =========
-import json
-from pathlib import Path
 
 TIER_CONFIG_PATH = Path(__file__).parent / "tier_config.json"
 
@@ -316,33 +311,70 @@ def load_tier_config(path: Path = TIER_CONFIG_PATH):
     return tiers, default
 
 
-TIERS, DEFAULT_TIER = load_tier_config()
 
 
-def assign_tier(proba: float, sport: str, market: str, odds_bin: str):
+
+
+def _extract_proba(obj, default):
     """
-    Map model output -> Tier Code / Label using tier_config.json.
+    Helper: handle thresholds.json entries that might be either:
+      - a raw float/int: 0.63
+      - a dict like {"proba": 0.63, ...}
     """
-    sport = (sport or "").strip()
-    market = (market or "").strip()
-    odds_bin = (odds_bin or "").strip()
+    if isinstance(obj, dict):
+        val = obj.get("proba", default)
+    else:
+        val = obj if obj is not None else default
+    try:
+        return float(val)
+    except Exception:
+        return float(default)
 
-    for rule in TIERS:
-        if sport not in rule["sports"]:
-            continue
-        if market not in rule["markets"]:
-            continue
-        if odds_bin not in rule["odds_bin"]:
-            continue
+def load_thresholds(path: Path = THRESHOLDS_PATH) -> dict:
+    """
+    Load the auto-tuned thresholds.json. If missing or invalid, 
+    fall back to conservative defaults.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            raise ValueError("thresholds.json is not a dict")
+        return cfg
+    except Exception as e:
+        print(f"[thresholds] ⚠️ Failed to load {path}: {e} – using defaults")
+        return {
+            "A": {"proba": 0.70},
+            "B": {"proba": 0.65},
+            "C": {"proba": 0.60},
+        }
 
-        if proba < rule.get("min_proba", 0.0):
-            continue
-        if proba > rule.get("max_proba", 1.0):
-            continue
 
-        return rule["code"], rule["label"]
+THRESHOLDS = load_thresholds()
 
-    return DEFAULT_TIER["code"], DEFAULT_TIER["label"]
+# Keep simple global fallbacks so old code that references A_PROBA/B_PROBA/C_PROBA won't crash.
+A_PROBA = THRESHOLDS.get("A", {}).get("proba", 0.70)
+B_PROBA = THRESHOLDS.get("B", {}).get("proba", 0.65)
+C_PROBA = THRESHOLDS.get("C", {}).get("proba", 0.60)
+
+print(f"[thresholds] Loaded: A={A_PROBA}, B={B_PROBA}, C={C_PROBA} from {THRESHOLDS_PATH}")
+
+
+def tier_from_proba(p_ml: float) -> tuple[str, str]:
+    """
+    Map model probability to (tier_code, tier_label) using auto-tuned cutoffs.
+    Backed by thresholds.json written by train_sagemaker.py.
+    """
+    if p_ml >= A_PROBA:
+        return "A", "A-tier (High edge)"
+    elif p_ml >= B_PROBA:
+        return "B", "B-tier (Medium edge)"
+    elif p_ml >= C_PROBA:
+        return "C", "C-tier (Small edge)"
+    else:
+        return "PASS", "Pass"
+
+
 
 
 def append_by_header(ws, values: dict):
@@ -1128,7 +1160,7 @@ async def track_games():
                             "american_odds": decimal_to_american(curr),
                             "decimal_odds": decimal_odds,
                             "hours_to_start": max((game_time - datetime.now(TIMEZONE)).total_seconds()/3600.0, 0.0),
-                            "bet_limit": limit_now if isinstance(limit_now,(int,float)) else None,
+                            "bet_limit": limit_now if isinstance(limit_now, (int, float)) else 0.0,
                             "limit_trend": trend,
                             "spread_line_home": parsed.get("spread_line_home"),
                             "spread_line_away": parsed.get("spread_line_away"),
@@ -1285,16 +1317,9 @@ async def track_games():
 
                         
                             # --- Tiering from tier_config.json ---
-                            odds_bin = live_odds_bin(decimal_odds)
-                            tier_code, tier_label = assign_tier(
-                                proba=best["p_ml"],
-                                sport=best["sport_key"],
-                                market=best["label"],
-                                odds_bin=odds_bin,
-                            )
+                            # NEW: global tiering from auto-tuned probabilities
+                            tier_code, tier_label = tier_from_proba(best["p_ml"])
 
-
-                            # Map tier to the existing badge for consistency
                             if tier_code == "A":
                                 strength_badge = "✅ STRONG"
                             elif tier_code == "B":
@@ -1303,6 +1328,7 @@ async def track_games():
                                 strength_badge = "ℹ️ Watchlist"  # low
                             else:
                                 strength_badge = "ℹ️ Watchlist"
+
 
 
                             why_bits = [
@@ -1351,13 +1377,8 @@ async def track_games():
                                 bo          = parsed.get("extras",{}).get("betonlineag",{})
 
                                 # Recompute tier so it’s logged exactly as messaged
-                                odds_bin = live_odds_bin(curr_dec)
-                                tier_code, tier_label = assign_tier(
-                                    proba=best["p_ml"],
-                                    sport=best["sport_key"],
-                                    market=best["label"],
-                                    odds_bin=odds_bin,
-                                )
+                                tier_code, tier_label = tier_from_proba(best["p_ml"])
+
 
 
                                 obs_map = {

@@ -1,0 +1,14 @@
+artifact_uri: file:C:\Users\Jcast\OneDrive\Documents\sports-repo\alpha_signal_engine\mlruns_local/476159873114401147/a38f3cc3943248a5be325f292240ee4e/artifacts
+end_time: 1765245865097
+entry_point_name: ''
+experiment_id: '476159873114401147'
+lifecycle_stage: active
+run_id: a38f3cc3943248a5be325f292240ee4e
+run_name: sagemaker-train
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765245633609
+status: 3
+tags: []
+user_id: Jcast

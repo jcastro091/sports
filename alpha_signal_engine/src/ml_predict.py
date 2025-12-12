@@ -1,4 +1,3 @@
-# alpha_signal_engine/src/ml_predict.py
 from __future__ import annotations
 
 import os
@@ -9,8 +8,6 @@ import bz2
 import logging
 from pathlib import Path
 from typing import Any, Optional, List, Dict
-
-
 
 import numpy as np
 import pandas as pd
@@ -23,20 +20,57 @@ log.setLevel(logging.INFO)
 # --------------------------
 # Primary env vars (old names kept for backward-compat)
 MODEL_PATH_ENV: str = os.getenv("STRONG_MODEL_PATH") or os.getenv("MODEL_FILE", "")
-FEATS_PATH_ENV: str  = os.getenv("STRONG_FEATURE_NAMES") or os.getenv("FEATURE_FILE", "")
+FEATS_PATH_ENV: str = os.getenv("STRONG_FEATURE_NAMES") or os.getenv("FEATURE_FILE", "")
+THRESH_PATH_ENV: str = os.getenv("STRONG_THRESHOLDS_PATH") or os.getenv("THRESHOLDS_FILE", "")
 
-_CANDIDATE_DIRS: List[Path] = [
-    Path(r"C:\Users\Jcast\Documents\alpha_signal_engine\data\results\models"),
-    Path(r"C:\Users\Jcast\Documents\alpha_signal_engine"),
-    Path(r"C:\Users\Jcast\OneDrive\Documents\alpha_signal_engine\data\results\models"),
-    Path(r"C:\Users\Jcast\OneDrive\Documents\alpha_signal_engine"),
-    Path(r"C:\Users\John Castro\Documents\alpha_signal_engine\data\results\models"),
-    Path(r"C:\Users\John Castro\Documents\alpha_signal_engine"),
-    Path(r"C:\Users\John Castro\OneDrive\Documents\alpha_signal_engine\data\results\models"),
-    Path(r"C:\Users\John Castro\OneDrive\Documents\alpha_signal_engine"),
-    Path(__file__).resolve().parents[3] / "data" / "results" / "models",
-    Path(__file__).resolve().parents[2],
+# ---------------------------------------------------------------------------
+# Model artifact locations
+# ---------------------------------------------------------------------------
+
+from pathlib import Path
+from typing import List
+
+# ---------------------------------------------------------------------------
+# Model artifact locations (FIXED to use sm_model_dir)
+# ---------------------------------------------------------------------------
+
+# Repo root: <repo>/alpha_signal_engine/ml_predict.py → parents[2] = <repo>
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# ✅ Correct SageMaker model output directory (contains model.pkl, model_features.pkl)
+_SM_MODEL_DIR = (
+    _REPO_ROOT
+    / "alpha_signal_engine"
+    / "data"
+    / "tmp"
+    / "sm_model_dir"
+)
+
+# ❌ Old incorrect directory (kept as fallback only)
+_SM_OUTPUT_DIR = (
+    _REPO_ROOT
+    / "alpha_signal_engine"
+    / "data"
+    / "tmp"
+    / "sm_output_dir"
+)
+
+# Legacy fallback
+_LEGACY_MODEL_DIRS: List[Path] = [
+    _REPO_ROOT / "alpha_signal_engine" / "data" / "results" / "models",
+    _REPO_ROOT / "data" / "results" / "models",
 ]
+
+# NEW priority order:
+# 1. sm_model_dir (correct)
+# 2. sm_output_dir (metrics only, last resort)
+# 3. legacy dirs
+_CANDIDATE_DIRS: List[Path] = []
+for p in [_SM_MODEL_DIR, _SM_OUTPUT_DIR, *_LEGACY_MODEL_DIRS]:
+    if p not in _CANDIDATE_DIRS:
+        _CANDIDATE_DIRS.append(p)
+
+
 
 # -----------------------
 # Robust model/file I/O
@@ -63,6 +97,9 @@ _model: Any = None
 _model_path: Optional[Path] = None
 _feature_names: Optional[List[str]] = None  # pre-transform columns used in training
 
+_thresholds: Optional[Dict[str, float]] = None
+_thresholds_path: Optional[Path] = None
+
 def _looks_like_feature_file(name_lower: str) -> bool:
     # Anything that hints it's a feature file
     return any(tok in name_lower for tok in ("features", "feature_names", "model_features", "feat"))
@@ -73,13 +110,19 @@ def _looks_like_model_file(name_lower: str) -> bool:
         return False
     return any(k in name_lower for k in ("winloss", "strong", "final", "pipeline", "model", "clf", "estimator"))
 
+def _looks_like_thresholds_file(name_lower: str) -> bool:
+    return ("threshold" in name_lower) and name_lower.endswith(".json")
+
 def _auto_find_model() -> Optional[Path]:
     # Pick the newest plausible *model* file
     for root in _CANDIDATE_DIRS:
         if not root.exists():
             continue
-        files = sorted((p for p in root.iterdir() if p.is_file()),
-                       key=lambda p: p.stat().st_mtime, reverse=True)
+        files = sorted(
+            (p for p in root.iterdir() if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         for p in files:
             n = p.name.lower()
             if _looks_like_model_file(n):
@@ -93,9 +136,14 @@ def _auto_find_model() -> Optional[Path]:
 def _auto_find_feature_file() -> Optional[Path]:
     # Try siblings of the chosen model first
     if _model_path:
-        for cand in ("strong_feature_names.json", "feature_names.json",
-                     "model_features.pkl", "model_features.joblib",
-                     "model_features.pkl.gz", "model_features.pbz2"):
+        for cand in (
+            "strong_feature_names.json",
+            "feature_names.json",
+            "model_features.pkl",
+            "model_features.joblib",
+            "model_features.pkl.gz",
+            "model_features.pbz2",
+        ):
             t = _model_path.parent / cand
             if t.exists():
                 return t
@@ -103,12 +151,39 @@ def _auto_find_feature_file() -> Optional[Path]:
     for root in _CANDIDATE_DIRS:
         if not root.exists():
             continue
-        for cand in ("strong_feature_names.json", "feature_names.json",
-                     "model_features.pkl", "model_features.joblib",
-                     "model_features.pkl.gz", "model_features.pbz2"):
+        for cand in (
+            "strong_feature_names.json",
+            "feature_names.json",
+            "model_features.pkl",
+            "model_features.joblib",
+            "model_features.pkl.gz",
+            "model_features.pbz2",
+        ):
             t = root / cand
             if t.exists():
                 return t
+    return None
+
+def _auto_find_thresholds_file() -> Optional[Path]:
+    # Prefer sibling of the chosen model
+    if _model_path:
+        for cand in ("thresholds.json", "threshold.json"):
+            t = _model_path.parent / cand
+            if t.exists():
+                return t
+
+    # Then scan candidate dirs for a thresholds JSON
+    for root in _CANDIDATE_DIRS:
+        if not root.exists():
+            continue
+        files = sorted(
+            (p for p in root.iterdir() if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for p in files:
+            if _looks_like_thresholds_file(p.name.lower()):
+                return p
     return None
 
 def _validate_model_object(obj: Any, src: Path) -> Any:
@@ -132,7 +207,9 @@ def _load_model_once() -> Any:
     path = Path(MODEL_PATH_ENV) if MODEL_PATH_ENV else _auto_find_model()
     if not path or not path.exists():
         tried = [str(p) for p in _CANDIDATE_DIRS]
-        raise FileNotFoundError(f"Model file not found. Env MODEL_FILE/STRONG_MODEL_PATH='{MODEL_PATH_ENV}'. Tried: {tried}")
+        raise FileNotFoundError(
+            f"Model file not found. Env MODEL_FILE/STRONG_MODEL_PATH='{MODEL_PATH_ENV}'. Tried: {tried}"
+        )
 
     last_err: Optional[Exception] = None
     for reader in _MODEL_READERS:
@@ -197,6 +274,98 @@ def _load_feature_names_once() -> Optional[List[str]]:
         _feature_names = None
     return _feature_names
 
+def _load_thresholds_once() -> Optional[Dict[str, float]]:
+    """
+    Load thresholds from:
+      1) STRONG_THRESHOLDS_PATH / THRESHOLDS_FILE env vars, or
+      2) thresholds.json / threshold.json near the model, or
+      3) thresholds.json in candidate dirs.
+
+    Expected shape (example):
+      {"A": 0.63, "B": 0.57, "C": 0.52}
+    """
+    global _thresholds, _thresholds_path
+    if _thresholds is not None:
+        return _thresholds
+
+    path: Optional[Path] = None
+    if THRESH_PATH_ENV:
+        cand = Path(THRESH_PATH_ENV)
+        if cand.exists():
+            path = cand
+
+    if path is None:
+        try:
+            _load_model_once()  # ensure _model_path
+        except Exception:
+            pass
+        path = _auto_find_thresholds_file()
+
+    if path is None or not path.exists():
+        log.warning(
+            "No thresholds file found (env STRONG_THRESHOLDS_PATH/THRESHOLDS_FILE='%s'). "
+            "Using PASS-only behavior.", THRESH_PATH_ENV
+        )
+        _thresholds = None
+        _thresholds_path = None
+        return _thresholds
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError(f"thresholds file {path} must be a JSON object")
+
+        # Normalize keys to upper and values to float
+        th: Dict[str, float] = {}
+        for k, v in raw.items():
+            try:
+                # Accept both numeric values AND objects like {"proba": 0.7}
+                if isinstance(v, (int, float)):
+                    th[str(k).upper()] = float(v)
+                elif isinstance(v, dict) and "proba" in v:
+                    th[str(k).upper()] = float(v["proba"])
+                else:
+                    log.warning("Skipping unrecognized threshold %r=%r in %s", k, v, path)
+            except Exception:
+                log.warning("Failed to parse threshold %r=%r in %s", k, v, path)
+
+        if not th:
+            raise ValueError(f"no valid numeric thresholds found in {path}")
+
+        _thresholds = th
+        _thresholds_path = path
+        log.info("📊 Thresholds loaded from %s: %s", path, _thresholds)
+    except Exception as e:
+        log.warning("Thresholds load failed from %s: %s", path, e)
+        _thresholds = None
+        _thresholds_path = None
+
+    return _thresholds
+
+def score_to_tier(prob: float, thresholds: Optional[Dict[str, float]]) -> str:
+    """
+    Map probability to tier using the thresholds dict.
+
+    Strategy:
+      - Sort thresholds by value desc.
+      - First key where prob >= value wins.
+      - If nothing matches or thresholds missing -> 'PASS'.
+    """
+    try:
+        p = float(prob)
+    except Exception:
+        return "PASS"
+
+    if thresholds is None:
+        return "PASS"
+
+    # Sort like [("A", 0.63), ("B", 0.57), ("C", 0.52)]
+    ordered = sorted(thresholds.items(), key=lambda kv: kv[1], reverse=True)
+    for label, cutoff in ordered:
+        if p >= cutoff:
+            return label
+    return "PASS"
+
 # ---------------------------------------
 # Inference-time feature engineering
 # Mirrors the training expectations in train_model.py
@@ -228,13 +397,20 @@ def _clean_direction(s: str) -> str:
     if not isinstance(s, str):
         return ""
     t = s.strip().lower()
-    if t.startswith("home"): return "Home"
-    if t.startswith("away"): return "Away"
-    if "spread favorite" in t: return "Spread Favorite"
-    if "spread underdog"  in t: return "Spread Underdog"
-    if t == "underdog": return "Underdog"
-    if t == "over":     return "Over"
-    if t == "under":    return "Under"
+    if t.startswith("home"):
+        return "Home"
+    if t.startswith("away"):
+        return "Away"
+    if "spread favorite" in t:
+        return "Spread Favorite"
+    if "spread underdog" in t:
+        return "Spread Underdog"
+    if t == "underdog":
+        return "Underdog"
+    if t == "over":
+        return "Over"
+    if t == "under":
+        return "Under"
     return "Other"
 
 def _time_bin(mins: float) -> str:
@@ -242,41 +418,73 @@ def _time_bin(mins: float) -> str:
         m = float(mins)
     except Exception:
         return "unknown"
-    if m < 0:    return "<0m"
-    if m <= 15:  return "0–15m"
-    if m <= 60:  return "15–60m"
-    if m <= 180: return "1–3h"
-    if m <= 720: return "3–12h"
+    if m < 0:
+        return "<0m"
+    if m <= 15:
+        return "0–15m"
+    if m <= 60:
+        return "15–60m"
+    if m <= 180:
+        return "1–3h"
+    if m <= 720:
+        return "3–12h"
     return "12h+"
 
 def _odds_bin_from_imp(imp: float) -> str:
-    if pd.isna(imp): return "unknown"
-    if imp >= 0.70:  return "HeavyFav"
-    if imp >= 0.55:  return "Fav"
-    if imp >= 0.40:  return "Balanced"
-    if imp >= 0.20:  return "Dog"
+    if pd.isna(imp):
+        return "unknown"
+    if imp >= 0.70:
+        return "HeavyFav"
+    if imp >= 0.55:
+        return "Fav"
+    if imp >= 0.40:
+        return "Balanced"
+    if imp >= 0.20:
+        return "Dog"
     return "Longshot"
 
 # Payload keys we accept from the runner
 BASE_NUMS = {
-    "movement": np.nan, "minutes_to_start": np.nan,
-    "open_am": np.nan, "open_dec": np.nan, "open_imp": np.nan,
-    "curr_am": np.nan, "curr_dec": np.nan, "curr_imp": np.nan,
-    "close_am": np.nan, "close_dec": np.nan, "close_imp": np.nan,
-    "delta_am_close_open": np.nan, "delta_am_close_curr": np.nan,
-    "delta_imp_close_open": np.nan, "delta_imp_close_curr": np.nan,
-    "spread_home": np.nan, "spread_away": np.nan,
-    "spread_home_abs": np.nan, "spread_away_abs": np.nan,
-    "spread_abs_min": np.nan, "spread_abs_max": np.nan,
-    "home_fav_flag": np.nan, "away_fav_flag": np.nan,
-    "spread_dist_3": np.nan, "spread_dist_7": np.nan,
+    "movement": np.nan,
+    "minutes_to_start": np.nan,
+    "open_am": np.nan,
+    "open_dec": np.nan,
+    "open_imp": np.nan,
+    "curr_am": np.nan,
+    "curr_dec": np.nan,
+    "curr_imp": np.nan,
+    "close_am": np.nan,
+    "close_dec": np.nan,
+    "close_imp": np.nan,
+    "delta_am_close_open": np.nan,
+    "delta_am_close_curr": np.nan,
+    "delta_imp_close_open": np.nan,
+    "delta_imp_close_curr": np.nan,
+    "spread_home": np.nan,
+    "spread_away": np.nan,
+    "spread_home_abs": np.nan,
+    "spread_away_abs": np.nan,
+    "spread_abs_min": np.nan,
+    "spread_abs_max": np.nan,
+    "home_fav_flag": np.nan,
+    "away_fav_flag": np.nan,
+    "spread_dist_3": np.nan,
+    "spread_dist_7": np.nan,
     "total_line": np.nan,
-    "bet_limit_raw": np.nan, "bet_limit_log": np.nan, "bet_limit_z": np.nan,
-    "consensus_close_imp": np.nan, "book_imp_range_close": np.nan, "book_outlier_flag": np.nan,
+    "bet_limit_raw": np.nan,
+    "bet_limit_log": np.nan,
+    "bet_limit_z": np.nan,
+    "consensus_close_imp": np.nan,
+    "book_imp_range_close": np.nan,
+    "book_outlier_flag": np.nan,
 }
 BASE_CATS = {
-    "sport": "", "market": "", "direction_clean": "",
-    "time_bin": "unknown", "limit_trend": "unknown", "odds_bin": "unknown"
+    "sport": "",
+    "market": "",
+    "direction_clean": "",
+    "time_bin": "unknown",
+    "limit_trend": "unknown",
+    "odds_bin": "unknown",
 }
 
 def transform_for_inference(payload: Dict[str, Any], feature_names: Optional[List[str]] = None) -> pd.DataFrame:
@@ -291,25 +499,32 @@ def transform_for_inference(payload: Dict[str, Any], feature_names: Optional[Lis
             minutes_to_start = None
 
     # odds + implied
-    am  = p.get("american_odds", None)
+    am = p.get("american_odds", None)
     dec = p.get("decimal_odds", None)
-    if dec is None or (isinstance(dec, (int,float)) and not np.isfinite(dec)):
+    if dec is None or (isinstance(dec, (int, float)) and not np.isfinite(dec)):
         dec = _american_to_decimal(am)
-    imp = _implied_prob_from_american(am) if am is not None else (1.0/dec if (isinstance(dec,(int,float)) and dec>1) else np.nan)
+    imp = (
+        _implied_prob_from_american(am)
+        if am is not None
+        else (1.0 / dec if (isinstance(dec, (int, float)) and dec > 1) else np.nan)
+    )
 
     direction_clean = _clean_direction(str(p.get("Direction", "")))
-    sport   = str(p.get("sport", "")) or ""
-    market  = str(p.get("market", "")) or ""
+    sport = str(p.get("sport", "")) or ""
+    market = str(p.get("market", "")) or ""
     limit_trend = str(p.get("limit_trend", p.get("Limit Trend", "unknown"))) or "unknown"
     tb = _time_bin(minutes_to_start if minutes_to_start is not None else np.nan)
     ob = _odds_bin_from_imp(imp)
 
     # spreads / totals
     def _to_spread(x):
-        if isinstance(x, str) and x.strip().lower() in {"pk","pick","pickem","pick'em"}:
+        if isinstance(x, str) and x.strip().lower() in {"pk", "pick", "pickem", "pick'em"}:
             return 0.0
-        try: return float(x)
-        except Exception: return np.nan
+        try:
+            return float(x)
+        except Exception:
+            return np.nan
+
     sh = _to_spread(p.get("spread_line_home", np.nan))
     sa = _to_spread(p.get("spread_line_away", np.nan))
     sha = abs(sh) if pd.notna(sh) else np.nan
@@ -336,30 +551,40 @@ def transform_for_inference(payload: Dict[str, Any], feature_names: Optional[Lis
     bet_limit_z = np.nan
 
     nums = dict(BASE_NUMS)
-    nums.update({
-        "movement": float(p.get("Movement", np.nan)) if p.get("Movement", None) is not None else np.nan,
-        "minutes_to_start": float(minutes_to_start) if minutes_to_start is not None else np.nan,
-        "curr_am": float(am) if am is not None else np.nan,
-        "curr_dec": float(dec) if dec is not None else np.nan,
-        "curr_imp": float(imp) if imp is not None else np.nan,
-        "spread_home": sh, "spread_away": sa,
-        "spread_home_abs": sha, "spread_away_abs": saa,
-        "spread_abs_min": smin, "spread_abs_max": smax,
-        "home_fav_flag": home_fav_flag, "away_fav_flag": away_fav_flag,
-        "spread_dist_3": (abs(smin - 3.0) if pd.notna(smin) else np.nan),
-        "spread_dist_7": (abs(smin - 7.0) if pd.notna(smin) else np.nan),
-        "total_line": total_line if total_line is not None else np.nan,
-        "bet_limit_raw": bet_limit_raw, "bet_limit_log": bet_limit_log, "bet_limit_z": bet_limit_z,
-    })
+    nums.update(
+        {
+            "movement": float(p.get("Movement", np.nan)) if p.get("Movement", None) is not None else np.nan,
+            "minutes_to_start": float(minutes_to_start) if minutes_to_start is not None else np.nan,
+            "curr_am": float(am) if am is not None else np.nan,
+            "curr_dec": float(dec) if dec is not None else np.nan,
+            "curr_imp": float(imp) if imp is not None else np.nan,
+            "spread_home": sh,
+            "spread_away": sa,
+            "spread_home_abs": sha,
+            "spread_away_abs": saa,
+            "spread_abs_min": smin,
+            "spread_abs_max": smax,
+            "home_fav_flag": home_fav_flag,
+            "away_fav_flag": away_fav_flag,
+            "spread_dist_3": (abs(smin - 3.0) if pd.notna(smin) else np.nan),
+            "spread_dist_7": (abs(smin - 7.0) if pd.notna(smin) else np.nan),
+            "total_line": total_line if total_line is not None else np.nan,
+            "bet_limit_raw": bet_limit_raw,
+            "bet_limit_log": bet_limit_log,
+            "bet_limit_z": bet_limit_z,
+        }
+    )
     cats = dict(BASE_CATS)
-    cats.update({
-        "sport": sport,
-        "market": market,
-        "direction_clean": direction_clean,
-        "time_bin": tb,
-        "limit_trend": limit_trend,
-        "odds_bin": ob,
-    })
+    cats.update(
+        {
+            "sport": sport,
+            "market": market,
+            "direction_clean": direction_clean,
+            "time_bin": tb,
+            "limit_trend": limit_trend,
+            "odds_bin": ob,
+        }
+    )
 
     row = {**nums, **cats}
     df = pd.DataFrame([row])
@@ -369,6 +594,11 @@ def transform_for_inference(payload: Dict[str, Any], feature_names: Optional[Lis
             if col not in df.columns:
                 df[col] = np.nan if col in BASE_NUMS else ""
         df = df[feature_names]
+
+    # Replace any "" in categorical/object columns with NaN so sklearn won't choke
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].replace("", np.nan)
 
     nnz = df.notna().sum().sum()
     log.info(f"🧩 Inference row built | cols={len(df.columns)} | non-NA total={int(nnz)}")
@@ -380,10 +610,27 @@ def vectorize_for_model(df: pd.DataFrame, feature_names: Optional[List[str]], mo
             if col not in df.columns:
                 df[col] = np.nan if col in BASE_NUMS else ""
         df = df[feature_names]
+
+    # Normalize object columns: "" → NaN
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].replace("", np.nan)
+
+    # 🔐 NEW: final guard so LogisticRegression never sees NaNs
+    if df.isna().any().any():
+        num_cols = [c for c in df.columns if df[c].dtype != object]
+        obj_cols = [c for c in df.columns if df[c].dtype == object]
+
+        if num_cols:
+            df[num_cols] = df[num_cols].fillna(0.0)
+        if obj_cols:
+            df[obj_cols] = df[obj_cols].fillna("missing")
+
     return df
 
+
 # ------------------------
-# Public prediction helper
+# Public prediction helpers
 # ------------------------
 def predict_win_prob(payload: dict) -> float:
     model = _load_model_once()
@@ -393,15 +640,39 @@ def predict_win_prob(payload: dict) -> float:
     proba = float(model.predict_proba(X)[0][1])
     return proba
 
+def predict_win_prob_and_tier(payload: dict) -> Dict[str, Any]:
+    """
+    Convenience API used by sports.py / runners that already know about A/B/C/PASS.
+
+    Returns:
+        {
+          "prob": <float>,        # model probability
+          "tier": <"A"|"B"|"C"|"PASS">
+        }
+    """
+    proba = predict_win_prob(payload)
+    thresholds = _load_thresholds_once()
+    tier = score_to_tier(proba, thresholds)
+    return {"prob": proba, "tier": tier}
+
 # ------------------------
 # Optional convenience API
 # ------------------------
-def set_paths(model_path: Optional[str] = None, feature_names_path: Optional[str] = None) -> None:
-    global MODEL_PATH_ENV, FEATS_PATH_ENV, _model, _model_path, _feature_names
+def set_paths(model_path: Optional[str] = None, feature_names_path: Optional[str] = None,
+              thresholds_path: Optional[str] = None) -> None:
+    global MODEL_PATH_ENV, FEATS_PATH_ENV, THRESH_PATH_ENV
+    global _model, _model_path, _feature_names, _thresholds, _thresholds_path
+
     if model_path:
         MODEL_PATH_ENV = model_path
     if feature_names_path:
         FEATS_PATH_ENV = feature_names_path
+    if thresholds_path:
+        THRESH_PATH_ENV = thresholds_path
+
+    # reset cached state so next call reloads
     _model = None
     _model_path = None
     _feature_names = None
+    _thresholds = None
+    _thresholds_path = None

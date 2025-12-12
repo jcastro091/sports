@@ -1,0 +1,39 @@
+{
+  "model_name": "Random Forest",
+  "timestamp": "2025-12-09T02:04:24.746153+00:00",
+  "dataset": "ConfirmedBets - AllObservations.csv",
+  "dataset_hash": "114b13c11fd011deebf811b8526f0d88",
+  "rows_total": 4593,
+  "class_balance": {
+    "0": 2478,
+    "1": 2115
+  },
+  "auc": 0.7721781244370025,
+  "accuracy": 0.6879535558780842,
+  "threshold": 0.49,
+  "features_used": [
+    "close_imp",
+    "minutes_to_start",
+    "spread_home",
+    "spread_away",
+    "spread_home_abs",
+    "spread_away_abs",
+    "spread_abs_min",
+    "spread_abs_max",
+    "home_fav_flag",
+    "away_fav_flag",
+    "spread_dist_3",
+    "spread_dist_7",
+    "total_line",
+    "consensus_close_imp",
+    "book_imp_range_close",
+    "book_outlier_flag",
+    "sport",
+    "market",
+    "direction_clean",
+    "time_bin",
+    "limit_trend",
+    "odds_bin"
+  ],
+  "learning_rate_hgb": 0.07
+}

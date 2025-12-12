@@ -1,0 +1,10 @@
+artifact_location: file:C:\Users\Jcast\OneDrive\Documents\sports-repo\alpha_signal_engine\mlruns_local/476159873114401147/models/m-40ae013137914591896f9c84412cd648/artifacts
+creation_timestamp: 1765245732677
+experiment_id: '476159873114401147'
+last_updated_timestamp: 1765245736737
+model_id: m-40ae013137914591896f9c84412cd648
+model_type: null
+name: model
+source_run_id: bebd2e7c30bd414ca359debcc8b8545b
+status: 2
+status_message: null
